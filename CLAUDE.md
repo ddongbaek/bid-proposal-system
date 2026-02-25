@@ -32,7 +32,7 @@
 | Phase 1.5 | ✅ 완료 | 재직증명서 출력 기능 |
 | Phase 2 | ✅ 완료 | AI 편집기 + HWP→HTML 변환 + 서식 선택기 + 편집기 연동 |
 | Phase 3 | ✅ 완료 | 입찰 CRUD + 장표 조합기(BidWorkspace) + PDF 서비스 |
-| Phase 4 | 미착수 | 마무리 (Docker 프로덕션, 설정, 백업) |
+| Phase 4 | ✅ 완료 | Docker 프로덕션 빌드 + 환경변수 + 백업 스크립트 |
 
 **최신 인수인계 문서**: `docs/handover-phase3.md` (전체 기능 구현 + 검증 완료, 세션7 반영)
 

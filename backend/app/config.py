@@ -1,6 +1,9 @@
 """환경변수 설정 모듈 (pydantic-settings 기반)"""
 
+import json
 from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -36,6 +39,17 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v: str | list[str]) -> list[str]:
+        """환경변수에서 JSON 문자열로 전달된 CORS 목록 파싱"""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                return [s.strip() for s in v.split(",") if s.strip()]
+        return v
 
     # 파일 업로드 최대 크기 (50MB)
     MAX_UPLOAD_SIZE: int = 50 * 1024 * 1024

@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# 프로덕션 빌드: nginx가 /api/ 프록시하므로 상대 경로 사용
+ENV VITE_API_BASE_URL=/api
 RUN npm run build
 
 # Production stage

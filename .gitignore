@@ -16,6 +16,7 @@ data/db/
 data/uploads/
 data/thumbnails/
 data/generated/
+data/tmp_convert/
 
 # Environment
 .env
@@ -33,6 +34,9 @@ data/generated/
 # OS
 .DS_Store
 Thumbs.db
+
+# Backups
+backups/
 
 # Docker
 *.log
