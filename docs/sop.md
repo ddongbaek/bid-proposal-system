@@ -384,6 +384,7 @@ prompt: |
 1. `CLAUDE.md` - 프로젝트 전체 이해
 2. `docs/sop.md` - 현재 진행 상황, 다음 해야 할 작업
 3. 작업 대상 Phase의 관련 파일 (schema.md, api-spec.md, ui-spec.md)
+4. 최신 인수인계 문서 (docs/handover-phase*.md) - 직전 Phase 결과물 확인
 
 ### 진행 상황 기록
 - 각 Phase 완료 시 이 문서의 체크리스트 업데이트
@@ -402,12 +403,13 @@ prompt: |
 - [x] ui-spec.md 작성
 
 ### Phase 1: 기반 + 인력관리
-- [ ] 프로젝트 초기화
-- [ ] Docker Compose
-- [ ] FastAPI 기본 셋업
-- [ ] DB 모델
-- [ ] 인력 CRUD API
-- [ ] 인력 관리 프론트엔드
+- [x] 프로젝트 초기화 (git init, .env, .gitignore, config/, data/)
+- [x] Docker Compose (docker-compose.yml, Dockerfile x2, nginx.conf)
+- [x] FastAPI 기본 셋업 (main.py, config.py, database.py, ip_filter.py)
+- [x] DB 모델 (7개 테이블: personnel, certifications, project_history, bids, bid_pages, bid_personnel, page_library)
+- [x] 인력 CRUD API (13개 엔드포인트, reviewer 검수 통과)
+- [x] 인력 관리 프론트엔드 (PersonnelList, PersonnelEdit 3탭, mock fallback)
+- [ ] **실행 확인 대기** → `docs/handover-phase1.md` 참조
 
 ### Phase 2: AI 장표 생성 + 편집기
 - [ ] Gemini API 연동

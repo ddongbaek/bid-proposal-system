@@ -1,0 +1,25 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+      - ./config:/config
+    environment:
+      - DATABASE_URL=sqlite:////data/db/bid_proposal.db
+      - UPLOAD_DIR=/data/uploads
+      - THUMBNAIL_DIR=/data/thumbnails
+      - GENERATED_DIR=/data/generated
+      - ALLOWED_IPS_FILE=/config/allowed_ips.yaml
+      - DEV_MODE=true
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

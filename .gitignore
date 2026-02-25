@@ -20,6 +20,12 @@ data/generated/
 # Environment
 .env
 
+# 참고용 원본 파일 (대용량)
+참고용파일들/
+
+# Claude Code 임시 파일
+.claude/worktrees/
+
 # IDE
 .vscode/
 .idea/

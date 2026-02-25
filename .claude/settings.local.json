@@ -1,0 +1,53 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/requirements.txt\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/__init__.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/middleware/__init__.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/models/__init__.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/schemas/__init__.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/routers/__init__.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/database.py\":*)",
+      "Bash(npm install)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/models/personnel.py\":*)",
+      "Bash(npm install react-router-dom axios lucide-react)",
+      "Bash(npm install -D tailwindcss @tailwindcss/vite)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/models/bid.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-af151fcc/frontend/vite.config.ts\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/schemas/personnel.py\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-a9798df9/backend/app/routers/personnel.py\":*)",
+      "Bash(python3 -c \":*)",
+      "Bash(python -c \":*)",
+      "Bash(python3 -c:*)",
+      "Bash(\"/tmp/write_helper.py\":*)",
+      "Bash(python:*)",
+      "Bash(/tmp/write_files.py:*)",
+      "Bash(/tmp/gen_personnel_edit.py:*)",
+      "Bash(__NEW_LINE_19168c216453116d__ python /tmp/gen_personnel_edit.py)",
+      "Bash(/tmp/gen_pe.py:*)",
+      "Bash(python3 /tmp/write_helper.py:*)",
+      "Bash(__NEW_LINE_41e3ba1ea6956516__ echo \"main.tsx written\")",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-af151fcc/frontend/src/vite-env.d.ts\":*)",
+      "Bash(\"E:/구글드라이브_동기화/Claude/04_bid-proposal-system/.claude/worktrees/agent-af151fcc/frontend/tsconfig.app.json\":*)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx vite build)",
+      "Bash(/tmp/b64_router.txt:*)",
+      "Bash(git merge worktree-agent-a9798df9 --no-edit)",
+      "Bash(SRCDIR='E:\\\\구글드라이브_동기화\\\\Claude\\\\04_bid-proposal-system\\\\.claude\\\\worktrees\\\\agent-af151fcc\\\\frontend')",
+      "Bash(DSTDIR='E:\\\\구글드라이브_동기화\\\\Claude\\\\04_bid-proposal-system\\\\frontend')",
+      "Bash(xcopy \"$SRCDIR\" \"$DSTDIR\" /E /I /Y /EXCLUDE:exclude.txt)",
+      "Bash(echo \"exit: $?\")",
+      "mcp__obsidian__obsidian_list_files_in_vault",
+      "Bash(cd E:\\\\구글드라이브_동기화\\\\Claude\\\\04_bid-proposal-system:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "n8n-mcp",
+    "obsidian",
+    "filesystem",
+    "context7",
+    "github"
+  ]
+}
