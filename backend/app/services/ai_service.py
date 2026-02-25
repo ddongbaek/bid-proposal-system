@@ -170,10 +170,33 @@ async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
         )
 
 
+def _apply_replacements(html: str, replacements: list[dict]) -> str:
+    """AI가 반환한 검색/치환 목록을 원본 HTML에 순서대로 적용."""
+    for r in replacements:
+        old = r.get("old", "")
+        new = r.get("new", "")
+        if not old:
+            continue
+        if old in html:
+            html = html.replace(old, new, 1)
+        else:
+            # 공백/줄바꿈 차이로 매칭 실패 시 유연 매칭 시도
+            old_normalized = re.sub(r"\s+", r"\\s+", re.escape(old.strip()))
+            match = re.search(old_normalized, html)
+            if match:
+                html = html[:match.start()] + new + html[match.end():]
+            else:
+                logger.warning("치환 대상을 찾지 못함: %s", old[:80])
+    return html
+
+
 async def modify_html(
     html_content: str, css_content: str | None, request: str
 ) -> dict:
     """기존 HTML/CSS에 대해 자연어 수정 요청을 처리.
+
+    큰 HTML도 처리 가능하도록 전체 코드를 다시 생성하지 않고,
+    검색/치환(find-and-replace) 방식으로 수정 부분만 반환받아 적용한다.
 
     Args:
         html_content: 현재 HTML 코드
@@ -194,32 +217,46 @@ async def modify_html(
 
     prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
 
-## 현재 HTML
+## 현재 HTML (일부 생략 가능)
 ```html
 {html_content}
 ```
 
-## 현재 CSS
-```css
-{css_content or "/* CSS 없음 */"}
-```
+{f"## 현재 CSS\n```css\n{css_content}\n```" if css_content else ""}
 
 ## 수정 요청
 {request}
 
-## 규칙
-1. 요청에 따라 HTML 및/또는 CSS를 수정하세요.
-2. 기존 구조는 최대한 유지하면서 요청한 부분만 변경하세요.
-3. {{변수명}} 플레이스홀더가 있으면 그대로 유지하세요.
-4. 수정된 HTML과 CSS를 각각 ```html 과 ```css 코드 블록으로 반환하세요.
-5. 마지막에 "변경 설명:" 으로 시작하는 줄에 변경 내용을 한 줄로 요약하세요.
+## 중요: 응답 형식
+전체 HTML을 다시 작성하지 마세요!
+**변경할 부분만** 아래 JSON 형식으로 반환하세요:
+
+```json
+{{
+  "replacements": [
+    {{
+      "old": "변경 전 코드 (원본에서 정확히 복사)",
+      "new": "변경 후 코드"
+    }}
+  ],
+  "description": "변경 내용 요약"
+}}
+```
+
+규칙:
+- "old"는 원본 HTML/CSS에서 **정확히 복사**해야 합니다 (공백, 줄바꿈 포함).
+- "old"는 고유하게 식별 가능한 충분한 컨텍스트를 포함하세요.
+- 여러 곳을 수정해야 하면 replacements 배열에 여러 항목을 넣으세요.
+- CSS 수정 시에도 HTML 내 <style> 태그 안의 코드를 old/new로 지정하세요.
+- {{{{변수명}}}} 플레이스홀더가 있으면 그대로 유지하세요.
+- JSON 코드 블록 하나만 반환. 다른 설명 불필요.
 """
 
     try:
         response = model.generate_content(
             prompt,
             generation_config={
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "max_output_tokens": 8192,
             },
         )
@@ -230,22 +267,62 @@ async def modify_html(
                 detail="AI가 빈 응답을 반환했습니다. 다시 시도해주세요.",
             )
 
-        parsed = _parse_ai_response(response.text)
-
-        # 변경 설명 추출
-        changes_description = ""
-        desc_match = re.search(
-            r"변경\s*설명\s*[:：]\s*(.+)", response.text
+        # JSON 코드 블록 추출
+        json_match = re.search(
+            r"```json\s*\n(.*?)```", response.text, re.DOTALL
         )
-        if desc_match:
-            changes_description = desc_match.group(1).strip()
-        else:
-            changes_description = "수정이 완료되었습니다."
+        if not json_match:
+            # 코드 블록 없이 JSON만 반환한 경우
+            json_match = re.search(
+                r"\{[\s\S]*\"replacements\"[\s\S]*\}", response.text
+            )
+
+        if not json_match:
+            # JSON 파싱 실패 시 전체 HTML 반환 방식으로 fallback
+            logger.warning("AI가 JSON 형식으로 응답하지 않음. fallback 사용.")
+            parsed = _parse_ai_response(response.text)
+            if parsed["html_content"] and len(parsed["html_content"]) > 100:
+                return {
+                    "html_content": parsed["html_content"],
+                    "css_content": parsed["css_content"] or css_content,
+                    "changes_description": "수정이 완료되었습니다.",
+                }
+            # 파싱도 실패하면 원본 유지
+            return {
+                "html_content": html_content,
+                "css_content": css_content,
+                "changes_description": "수정을 적용하지 못했습니다. 다시 시도해주세요.",
+            }
+
+        json_text = json_match.group(1) if json_match.lastindex else json_match.group(0)
+        try:
+            data = json.loads(json_text)
+        except json.JSONDecodeError:
+            # JSON 파싱 실패 시 원본 유지
+            logger.error("AI 응답 JSON 파싱 실패: %s", json_text[:200])
+            return {
+                "html_content": html_content,
+                "css_content": css_content,
+                "changes_description": "AI 응답을 파싱하지 못했습니다. 다시 시도해주세요.",
+            }
+
+        replacements = data.get("replacements", [])
+        description = data.get("description", "수정이 완료되었습니다.")
+
+        if not replacements:
+            return {
+                "html_content": html_content,
+                "css_content": css_content,
+                "changes_description": "수정할 내용이 없습니다.",
+            }
+
+        # 치환 적용
+        modified_html = _apply_replacements(html_content, replacements)
 
         return {
-            "html_content": parsed["html_content"],
-            "css_content": parsed["css_content"] or None,
-            "changes_description": changes_description,
+            "html_content": modified_html,
+            "css_content": css_content,
+            "changes_description": description,
         }
 
     except HTTPException:

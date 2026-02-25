@@ -5,7 +5,7 @@ import AiChatPanel from '../components/editor/AiChatPanel';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
 import PreviewPanel from '../components/editor/PreviewPanel';
 import Modal from '../components/common/Modal';
-import { aiApi, libraryApi } from '../services/api';
+import { aiApi, libraryApi, hwpApi } from '../services/api';
 import type { AiChatMessage, PageLibraryCreate } from '../types';
 
 // 기본 HTML 템플릿
@@ -100,18 +100,43 @@ export default function PageEditor() {
   // Debounce 타이머
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // HWP 변환 결과를 ref로 캡처 (StrictMode 이중 실행 대응)
+  const hwpDataRef = useRef<{ html: string; fileName: string } | null>(null);
+  if (!hwpDataRef.current) {
+    const hwpHtml = sessionStorage.getItem('hwpHtmlContent');
+    const hwpFileName = sessionStorage.getItem('hwpFileName');
+    if (hwpHtml) {
+      hwpDataRef.current = { html: hwpHtml, fileName: hwpFileName || 'HWP 변환' };
+      sessionStorage.removeItem('hwpHtmlContent');
+      sessionStorage.removeItem('hwpFileName');
+    }
+  }
+
   // 초기 데이터 로드
   useEffect(() => {
     if (libraryId) {
       // 라이브러리에서 장표 불러오기
       loadFromLibrary(parseInt(libraryId));
     } else if (!bidId) {
-      // 독립 편집기 모드 - 빈 상태에서 시작
-      // 사용자가 직접 코드를 입력하거나 AI를 통해 생성하도록 비워둠
-      setHtmlContent('');
-      setCssContent('');
-      setPreviewHtml('');
-      setPreviewCss('');
+      const hwpData = hwpDataRef.current;
+      if (hwpData) {
+        setHtmlContent(hwpData.html);
+        setCssContent('');
+        setPreviewHtml(hwpData.html);
+        setPreviewCss('');
+        setSaveName(hwpData.fileName.replace(/\.hwp$/i, ''));
+        setChatMessages([{
+          role: 'assistant',
+          content: `HWP 변환 결과가 로드되었습니다: ${hwpData.fileName}\nAI에게 수정을 요청하거나 직접 코드를 편집하세요.`,
+          timestamp: new Date(),
+        }]);
+      } else {
+        // 독립 편집기 모드 - 빈 상태에서 시작
+        setHtmlContent('');
+        setCssContent('');
+        setPreviewHtml('');
+        setPreviewCss('');
+      }
     }
     // bidId가 있을 경우 (입찰 내 편집)는 Phase 3에서 구현
   }, [libraryId, bidId]);
@@ -199,6 +224,43 @@ export default function PageEditor() {
       const aiMsg: AiChatMessage = {
         role: 'assistant',
         content: `[API 미연결] "${message}" 요청을 처리하지 못했습니다. 백엔드 AI 서비스가 아직 준비되지 않았습니다. 직접 코드를 수정해주세요.`,
+        timestamp: new Date(),
+      };
+      setChatMessages((prev) => [...prev, aiMsg]);
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
+  // HWP → HTML 변환
+  const handleHwpUpload = async (file: File) => {
+    const userMsg: AiChatMessage = {
+      role: 'user',
+      content: `HWP 업로드: ${file.name}`,
+      timestamp: new Date(),
+    };
+    setChatMessages((prev) => [...prev, userMsg]);
+    setIsAiLoading(true);
+
+    try {
+      const result = await hwpApi.toHtml(file);
+
+      setHtmlContent(result.html_content);
+      setCssContent('');
+      setPreviewHtml(result.html_content);
+      setPreviewCss('');
+      setSaveName(file.name.replace(/\.hwp$/i, ''));
+
+      const aiMsg: AiChatMessage = {
+        role: 'assistant',
+        content: `HWP 변환 완료: ${result.filename}\nHTML 코드가 에디터에 로드되었습니다. AI에게 수정을 요청하거나 직접 편집하세요.`,
+        timestamp: new Date(),
+      };
+      setChatMessages((prev) => [...prev, aiMsg]);
+    } catch {
+      const aiMsg: AiChatMessage = {
+        role: 'assistant',
+        content: `HWP 변환에 실패했습니다. 백엔드 서버 연결을 확인하세요.`,
         timestamp: new Date(),
       };
       setChatMessages((prev) => [...prev, aiMsg]);
@@ -344,6 +406,7 @@ export default function PageEditor() {
             isLoading={isAiLoading}
             onSendMessage={handleAiMessage}
             onPdfUpload={handlePdfUpload}
+            onHwpUpload={handleHwpUpload}
           />
         </div>
 

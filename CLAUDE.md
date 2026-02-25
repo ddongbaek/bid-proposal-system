@@ -30,11 +30,11 @@
 | Phase 0 | ✅ 완료 | 프로젝트 문서화 |
 | Phase 1 | ✅ 완료 | 기반 인프라 + 인력관리 |
 | Phase 1.5 | ✅ 완료 | 재직증명서 출력 기능 |
-| Phase 2 | 🔧 진행중 | AI 장표 생성 + 편집기 + HWP→HTML 변환 |
+| Phase 2 | ✅ 거의 완료 | AI 편집기 + HWP→HTML 변환 + 서식 선택기 + 편집기 연동 |
 | Phase 3 | 미착수 | 장표 조합기 + PDF 출력 |
 | Phase 4 | 미착수 | 마무리 (Docker 프로덕션, 설정, 백업) |
 
-**최신 인수인계 문서**: `docs/handover-phase2-hwp.md` (HWP 변환), `docs/handover-phase2.md` (AI 편집기)
+**최신 인수인계 문서**: `docs/handover-phase2-hwp.md` (HWP 변환 + 편집기 연동, 세션4까지 반영)
 
 ---
 
@@ -147,8 +147,8 @@ bid-proposal-system/
 │       │   ├── personnel.py      # Pydantic 스키마 (Create/Update/Summary/Detail/List)
 │       │   └── bid.py            # 입찰/AI/장표라이브러리 스키마
 │       ├── services/
-│       │   ├── ai_service.py         # Gemini API 연동 (PDF→HTML, HTML 수정)
-│       │   └── libreoffice_service.py # HWP→HTML(pyhwp) + PDF 처리
+│       │   ├── ai_service.py         # Gemini API 연동 (PDF→HTML, HTML diff 수정)
+│       │   └── libreoffice_service.py # HWP→HTML(pyhwp) + 서식 그룹핑/추출 + PDF 처리
 │       └── routers/
 │           ├── personnel.py      # 인력 CRUD 13개 엔드포인트
 │           ├── ai.py             # AI API (pdf-to-html, modify)
@@ -187,7 +187,8 @@ bid-proposal-system/
 | PUT | /api/personnel/{id}/projects/{project_id} | 프로젝트 이력 수정 |
 | DELETE | /api/personnel/{id}/projects/{project_id} | 프로젝트 이력 삭제 |
 | GET | /api/health | 헬스체크 |
-| POST | /api/hwp/to-html | HWP→HTML 변환 (pyhwp) |
+| POST | /api/hwp/to-html | HWP→HTML 변환 + 서식 목록 (pyhwp) |
+| POST | /api/hwp/extract-sections | 선택된 서식만 HTML 추출 |
 | POST | /api/hwp/convert | HWP→PDF 변환 (LibreOffice, Windows 미동작) |
 | POST | /api/hwp/info | HWP 파일 정보 (페이지 수) |
 | POST | /api/ai/pdf-to-html | PDF→HTML AI 변환 (Gemini) |
@@ -245,15 +246,16 @@ bid-proposal-system/
 - 주민등록번호 DB 저장 (출력 시 뒷자리 마스킹)
 - 증명서 번호 localStorage 자동증가 (수동 변경 가능)
 - Pretendard 폰트(CDN), KOIS 로고 + 직인 이미지 base64 인라인
-### Phase 2: AI 장표 생성 + 편집기 (🔧 진행중)
-- Gemini API 연동 (gemini-2.0-flash) - PDF→HTML 변환, 자연어 HTML 수정
+### Phase 2: AI 편집기 + HWP 변환 (✅ 거의 완료)
+- Gemini API 연동 (gemini-2.5-flash) - PDF→HTML 변환, 자연어 HTML 수정 (diff 기반)
 - 장표 편집기 (3분할: AI채팅 | Monaco코드에디터 | A4미리보기)
-- AI 채팅 패널 (자연어 수정 요청 + PDF 업로드 변환)
-- 장표 라이브러리 CRUD (저장/불러오기/삭제, 카테고리 필터)
+- AI 채팅 패널 (자연어 수정 요청 + PDF/HWP 업로드 변환)
+- 장표 라이브러리 CRUD (저장/불러오기/삭제, 카테고리 필터) — 동작 확인 완료
 - 독립 편집기 경로 (/editor) + 입찰 내 편집 경로 (/bids/:id/pages/:pageId/edit)
 - **HWP→HTML 변환** (pyhwp 기반) - 표/양식 구조 유지, 폰트 정규화, 정렬 보정
-- HWP 변환 테스트 페이지 (/hwp)
-- 남은 작업: Gemini 실행 확인, 편집기에 HWP 변환 결과 로드 연동
+- **서식 선택기** - `[ 서식 N ]` 패턴 기준 그룹핑, 체크박스 UI로 원하는 서식만 편집기로
+- HWP→편집기 연동 (sessionStorage, StrictMode 대응)
+- 남은 작업: Gemini AI 수정 실사용 테스트 (GEMINI_API_KEY 설정 필요)
 ### Phase 3: 장표 조합기 + PDF 출력
 ### Phase 4: 마무리 (Docker 프로덕션, 설정, 백업)
 
@@ -307,3 +309,6 @@ docker-compose up --build
 | 2026-02-25 | pyhwp (python-hwp5) 라이브러리 사용 | HWP5 형식 직접 파싱, hwp5html CLI로 HTML+CSS 생성 |
 | 2026-02-25 | LibreOffice HWP 변환 포기 (Windows) | LibreOffice 26.2 Windows 빌드에 HWP 필터 DLL 누락 |
 | 2026-02-25 | HTML 후처리로 TableControl 구조 변환 | HTML 파서가 p 안의 table을 분리시키는 문제 해결 |
+| 2026-02-25 | 서식 그룹핑: `[ 서식 N ]` 패턴 기준 | 개별 TableControl(25개)→서식 단위(14개)로 양식 깨짐 방지 |
+| 2026-02-25 | Gemini AI 수정을 diff 방식으로 변경 | 대용량 HTML(170KB+)에서 전체 재생성 불가 → 검색/치환 JSON |
+| 2026-02-25 | HWP→편집기 연동에 sessionStorage 사용 | 페이지 간 대용량 데이터 전달, StrictMode 대응 useRef 패턴 |

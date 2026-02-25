@@ -3,6 +3,7 @@
 import io
 import logging
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -451,3 +452,140 @@ def _inject_normalize_css(html: str) -> str:
     if "<body" in html:
         return html.replace("<body", _FONT_NORMALIZE_CSS + "<body")
     return _FONT_NORMALIZE_CSS + html
+
+
+def _find_form_boundaries(html: str) -> list[dict]:
+    """HTML에서 [ 서식 N ] 패턴을 찾아 서식 경계 목록을 반환.
+
+    각 서식 경계는 서식 번호 단락의 위치와 그 뒤의 부제목(첫 의미있는 텍스트)을 포함.
+    """
+    paras = list(re.finditer(r"<p[^>]*>(.*?)</p>", html, re.DOTALL))
+    boundaries: list[dict] = []
+
+    for i, p in enumerate(paras):
+        text = re.sub(r"<[^>]+>", "", p.group(1))
+        text = re.sub(r"&#\d+;", "", text).strip()
+        # [ 서식 N ] 패턴 매칭 (참조 문구 제외)
+        m = re.search(r"\[?\s*서식\s*(\d+)\s*\]?", text)
+        if not m:
+            continue
+        # "서식 8의 참여인력 현황표에 기재된" 같은 참조 문구 제외
+        if "기재된" in text or "의 참여인력" in text:
+            continue
+
+        # 부제목: 서식 번호 뒤 첫 의미있는 단락
+        subtitle = ""
+        for j in range(i + 1, min(i + 5, len(paras))):
+            next_text = re.sub(r"<[^>]+>", "", paras[j].group(1))
+            next_text = re.sub(r"&#\d+;", "", next_text).strip()
+            if next_text and len(next_text) > 2 and not re.match(r"^[\s\d.]+$", next_text):
+                subtitle = next_text[:40]
+                break
+
+        boundaries.append({
+            "form_num": int(m.group(1)),
+            "position": p.start(),
+            "subtitle": subtitle,
+        })
+
+    return boundaries
+
+
+def parse_html_sections(html: str) -> list[dict]:
+    """변환된 HTML에서 서식 단위로 섹션 목록을 추출.
+
+    [ 서식 N ] 패턴을 기준으로 그룹핑하여, 하나의 서식에 속하는
+    제목 단락 + 모든 테이블을 하나의 섹션으로 묶는다.
+    서식 번호가 없는 앞부분은 "표지/목차"로 처리.
+
+    Returns:
+        list[dict]: [{"index": 1, "label": "표지/목차", "start": ..., "end": ...}, ...]
+    """
+    boundaries = _find_form_boundaries(html)
+    if not boundaries:
+        # 서식 패턴이 없으면 전체를 하나의 섹션으로
+        return []
+
+    sections: list[dict] = []
+
+    # body 시작 위치
+    body_idx = html.find("<body")
+    body_start = html.find(">", body_idx) + 1 if body_idx != -1 else 0
+
+    # body 끝 위치
+    body_end_idx = html.find("</body>")
+    body_end = body_end_idx if body_end_idx != -1 else len(html)
+
+    # 서식 1 앞에 내용이 있으면 "표지/목차" 섹션 추가
+    first_form_pos = boundaries[0]["position"]
+    if first_form_pos > body_start + 50:  # 의미있는 내용이 있을 때만
+        sections.append({
+            "index": 0,
+            "label": "표지/목차",
+            "start": body_start,
+            "end": first_form_pos,
+        })
+
+    # 각 서식 경계 → 다음 서식 경계까지를 하나의 섹션으로
+    for i, boundary in enumerate(boundaries):
+        start = boundary["position"]
+        # 끝: 다음 서식의 시작 또는 body 끝
+        end = boundaries[i + 1]["position"] if i + 1 < len(boundaries) else body_end
+
+        form_num = boundary["form_num"]
+        subtitle = boundary["subtitle"]
+        label = f"서식 {form_num}"
+        if subtitle:
+            label += f" - {subtitle}"
+
+        sections.append({
+            "index": form_num,
+            "label": label,
+            "start": start,
+            "end": end,
+        })
+
+    return sections
+
+
+def extract_html_sections(html: str, indices: list[int]) -> str:
+    """HTML에서 지정된 섹션만 추출하여 새 HTML 문서를 생성.
+
+    Args:
+        html: 전체 변환된 HTML
+        indices: 추출할 섹션 인덱스 목록 (0=표지, 1~13=서식 번호)
+
+    Returns:
+        선택된 섹션만 포함하는 HTML 문서
+    """
+    sections = parse_html_sections(html)
+    if not sections:
+        return html
+
+    # head 부분 추출 (스타일 유지)
+    head_end = html.find("</head>")
+    if head_end == -1:
+        head_part = ""
+    else:
+        head_part = html[: head_end + len("</head>")]
+
+    # 선택된 섹션의 HTML 조각 수집
+    selected_parts: list[str] = []
+    for sec in sections:
+        if sec["index"] in indices:
+            section_html = html[sec["start"]:sec["end"]].strip()
+            # 앞쪽 고아 닫는 태그 제거
+            section_html = re.sub(
+                r"^(\s*</(?:td|tr|table|div|span|p)>\s*)+",
+                "",
+                section_html,
+                flags=re.IGNORECASE,
+            ).strip()
+            selected_parts.append(section_html)
+
+    body_content = "\n".join(selected_parts)
+
+    if head_part:
+        return f"{head_part}\n<body>\n{body_content}\n</body>\n</html>"
+    else:
+        return f"<html><body>\n{body_content}\n</body></html>"

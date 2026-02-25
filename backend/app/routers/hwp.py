@@ -10,8 +10,10 @@ from app.config import settings
 from app.services.libreoffice_service import (
     convert_hwp_to_html,
     convert_hwp_to_pdf,
+    extract_html_sections,
     extract_pages,
     get_pdf_page_count,
+    parse_html_sections,
 )
 
 logger = logging.getLogger(__name__)
@@ -113,10 +115,64 @@ async def convert_to_html(
 
     html_content = convert_hwp_to_html(content, file.filename)
 
+    # 섹션(서식/테이블) 목록 추출
+    sections = parse_html_sections(html_content)
+    section_list = [
+        {"index": s["index"], "label": s["label"]}
+        for s in sections
+    ]
+
     return {
         "filename": file.filename,
         "html_content": html_content,
-        "message": "HTML 변환 완료",
+        "sections": section_list,
+        "message": f"HTML 변환 완료 ({len(section_list)}개 서식 감지)",
+    }
+
+
+@router.post("/extract-sections")
+async def extract_sections_from_html(
+    file: UploadFile = File(...),
+    sections: str = Form(...),
+):
+    """HWP 변환 후 지정된 섹션만 추출.
+
+    - file: HWP 파일
+    - sections: 추출할 섹션 인덱스 (쉼표 구분, 예: "2,7,8")
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="파일이 제공되지 않았습니다.")
+
+    ext = "." + file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 파일 형식입니다. ({', '.join(ALLOWED_EXTENSIONS)})",
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="빈 파일입니다.")
+
+    # 섹션 인덱스 파싱
+    try:
+        indices = [int(s.strip()) for s in sections.split(",") if s.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="섹션 번호는 숫자(쉼표 구분)로 입력하세요.")
+
+    if not indices:
+        raise HTTPException(status_code=400, detail="추출할 섹션을 선택하세요.")
+
+    logger.info("HWP 섹션 추출 요청: %s, 섹션: %s", file.filename, indices)
+
+    html_content = convert_hwp_to_html(content, file.filename)
+    extracted = extract_html_sections(html_content, indices)
+
+    return {
+        "filename": file.filename,
+        "html_content": extracted,
+        "selected_sections": indices,
+        "message": f"{len(indices)}개 섹션 추출 완료",
     }
 
 

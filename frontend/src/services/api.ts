@@ -168,7 +168,7 @@ export const aiApi = {
 export const libraryApi = {
   /** 라이브러리 목록 조회 */
   list: async (category?: string): Promise<PageLibrarySummary[]> => {
-    const response = await api.get('/library', { params: category ? { category } : {} });
+    const response = await api.get('/library/', { params: category ? { category } : {} });
     return response.data;
   },
 
@@ -180,7 +180,7 @@ export const libraryApi = {
 
   /** 장표를 라이브러리에 저장 */
   create: async (data: PageLibraryCreate): Promise<PageLibraryItem> => {
-    const response = await api.post('/library', data);
+    const response = await api.post('/library/', data);
     return response.data;
   },
 
@@ -208,10 +208,32 @@ export const hwpApi = {
   },
 
   /** HWP→HTML 변환 */
-  toHtml: async (file: File): Promise<{ filename: string; html_content: string; message: string }> => {
+  toHtml: async (file: File): Promise<{
+    filename: string;
+    html_content: string;
+    sections: { index: number; label: string }[];
+    message: string;
+  }> => {
     const formData = new FormData();
     formData.append('file', file);
     const response = await api.post('/hwp/to-html', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return response.data;
+  },
+
+  /** HWP 섹션 추출 */
+  extractSections: async (file: File, sectionIndices: number[]): Promise<{
+    filename: string;
+    html_content: string;
+    selected_sections: number[];
+    message: string;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('sections', sectionIndices.join(','));
+    const response = await api.post('/hwp/extract-sections', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     });

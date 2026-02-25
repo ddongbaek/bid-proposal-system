@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Loader2, Bot, User, Upload, Sparkles } from 'lucide-react';
+import { Send, Loader2, Bot, User, Upload, Sparkles, FileText } from 'lucide-react';
 import type { AiChatMessage } from '../../types';
 
 interface AiChatPanelProps {
@@ -7,6 +7,7 @@ interface AiChatPanelProps {
   isLoading: boolean;
   onSendMessage: (message: string) => void;
   onPdfUpload: (file: File, instructions?: string) => void;
+  onHwpUpload?: (file: File) => void;
 }
 
 export default function AiChatPanel({
@@ -14,12 +15,14 @@ export default function AiChatPanel({
   isLoading,
   onSendMessage,
   onPdfUpload,
+  onHwpUpload,
 }: AiChatPanelProps) {
   const [input, setInput] = useState('');
   const [showUpload, setShowUpload] = useState(false);
   const [uploadInstructions, setUploadInstructions] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hwpInputRef = useRef<HTMLInputElement>(null);
 
   // 새 메시지가 추가되면 스크롤
   useEffect(() => {
@@ -50,8 +53,19 @@ export default function AiChatPanel({
     onPdfUpload(file, uploadInstructions.trim() || undefined);
     setShowUpload(false);
     setUploadInstructions('');
-    // 파일 입력 초기화
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleHwpSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.hwp')) {
+      alert('HWP 파일만 업로드할 수 있습니다.');
+      return;
+    }
+    onHwpUpload?.(file);
+    setShowUpload(false);
+    if (hwpInputRef.current) hwpInputRef.current.value = '';
   };
 
   return (
@@ -71,24 +85,46 @@ export default function AiChatPanel({
         </button>
       </div>
 
-      {/* PDF 업로드 영역 (토글) */}
+      {/* 파일 업로드 영역 (토글) */}
       {showUpload && (
-        <div className="px-4 py-3 border-b border-gray-700 bg-gray-800 space-y-2">
-          <p className="text-xs text-gray-400">발주처 양식 PDF를 업로드하면 AI가 HTML로 변환합니다.</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf"
-            onChange={handleFileSelect}
-            className="w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
-          />
-          <textarea
-            value={uploadInstructions}
-            onChange={(e) => setUploadInstructions(e.target.value)}
-            placeholder="추가 지시사항 (선택)"
-            rows={2}
-            className="w-full px-3 py-2 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-purple-500"
-          />
+        <div className="px-4 py-3 border-b border-gray-700 bg-gray-800 space-y-3">
+          {/* HWP 업로드 */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <FileText size={12} className="text-blue-400" />
+              <p className="text-xs font-medium text-blue-400">HWP 양식 변환</p>
+            </div>
+            <input
+              ref={hwpInputRef}
+              type="file"
+              accept=".hwp"
+              onChange={handleHwpSelect}
+              disabled={isLoading}
+              className="w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer disabled:opacity-50"
+            />
+          </div>
+          {/* PDF 업로드 */}
+          <div>
+            <div className="flex items-center gap-1.5 mb-1">
+              <Sparkles size={12} className="text-purple-400" />
+              <p className="text-xs font-medium text-purple-400">PDF AI 변환</p>
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf"
+              onChange={handleFileSelect}
+              disabled={isLoading}
+              className="w-full text-xs text-gray-400 file:mr-2 file:py-1 file:px-3 file:rounded file:border-0 file:text-xs file:font-medium file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer disabled:opacity-50"
+            />
+            <textarea
+              value={uploadInstructions}
+              onChange={(e) => setUploadInstructions(e.target.value)}
+              placeholder="추가 지시사항 (선택)"
+              rows={2}
+              className="mt-1 w-full px-3 py-2 text-xs bg-gray-900 border border-gray-600 rounded text-gray-200 placeholder-gray-500 resize-none focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
+          </div>
         </div>
       )}
 

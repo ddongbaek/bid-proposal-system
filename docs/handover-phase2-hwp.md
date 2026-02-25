@@ -1,186 +1,187 @@
-# Phase 2 인수인계 문서 (HWP 변환 보완)
+# Phase 2 인수인계 문서 (HWP 변환 + 편집기 연동)
 
-**작성일**: 2026-02-25
-**상태**: HWP→HTML 변환 구현 완료, 미세 조정은 편집기 단계에서 진행
-
----
-
-## 1. 배경 및 방향 전환
-
-### 문제 발견
-- Phase 2 초기에 구현한 **Gemini AI PDF→HTML 변환** 품질이 실사용에 부족
-- 발주처 양식은 HWP 파일로 제공되므로, **HWP→HTML 직접 변환**이 핵심
-
-### 시도한 접근 (시간순)
-| # | 접근 | 결과 |
-|---|------|------|
-| 1 | Gemini API PDF→HTML | HTML 생성되나 양식 구조 정확도 낮음 |
-| 2 | LibreOffice HWP→PDF→HTML | Windows 빌드에 **HWP 필터 DLL 누락** → HWP 변환 불가 |
-| 3 | **pyhwp (python-hwp5)** | ✅ 표/양식 구조 유지한 HTML 생성 성공 |
-
-### 최종 결정
-- **HWP→HTML 변환**: pyhwp 라이브러리 (`hwp5html` CLI) 사용
-- **Gemini AI**: 유지 (PDF→HTML, 자연어 HTML 수정 — 보조 용도)
-- **LibreOffice**: HWP 변환에는 사용 불가, 다른 포맷(DOC/DOCX 등) PDF 변환용으로 유지
+**작성일**: 2026-02-25 (세션 4 종료 시점)
+**상태**: HWP→HTML 변환 + 서식 선택기 + 편집기 연동 + AI 수정 구현 완료
 
 ---
 
-## 2. 생성/수정된 파일
+## 1. 이번 세션에서 완료한 작업
 
-### Backend 신규
-| 파일 | 용도 |
-|------|------|
-| `backend/app/services/libreoffice_service.py` | HWP→HTML 변환 + PDF 처리 통합 서비스 |
-| `backend/app/routers/hwp.py` | HWP API 라우터 (3개 엔드포인트) |
+### 1.1 HWP→편집기 연동 (sessionStorage)
+- `/hwp` 페이지에서 "편집기에서 열기" 클릭 → sessionStorage에 HTML 저장 → `/editor`로 navigate
+- `/editor` (PageEditor.tsx)에서 sessionStorage 읽어 Monaco 에디터 + 미리보기에 로드
+- **React StrictMode 대응**: `useRef`로 sessionStorage 데이터를 render 단계에서 캡처 (이중 실행에도 안전)
 
-### Backend 수정
-| 파일 | 변경 |
-|------|------|
-| `backend/requirements.txt` | `pyhwp>=0.1b15` 추가 |
-| `backend/app/main.py` | `hwp` 라우터 등록 (`/api/hwp`) |
+### 1.2 서식 단위 섹션 선택기 (핵심 개선)
+- **이전 문제**: 개별 TableControl(25개)을 각각 섹션으로 나누어 양식이 깨짐
+- **해결**: `[ 서식 N ]` 패턴을 기준으로 그룹핑 → 14개 섹션 (표지/목차 + 서식1~13)
+- 각 서식에 부제목 자동 추출 (예: "서식 7 - 제안업체 일반현황 및 연혁")
+- 체크박스 UI로 원하는 서식만 선택 → 편집기로 보내기
 
-### Frontend 신규
-| 파일 | 용도 |
-|------|------|
-| `frontend/src/pages/HwpConverter.tsx` | HWP→HTML 변환 테스트 페이지 |
+### 1.3 Gemini AI 수정 방식 변경 (diff 기반)
+- **이전 문제**: 대용량 HTML(170KB+)을 Gemini에게 전체 재생성 요청 → 토큰 초과/잘림
+- **해결**: 검색/치환(find-and-replace) JSON 방식으로 변경
+  - AI가 `{"replacements": [{"old": "...", "new": "..."}], "description": "..."}` 반환
+  - 원본 HTML에 순서대로 적용 → 안전하게 부분 수정
 
-### Frontend 수정
-| 파일 | 변경 |
-|------|------|
-| `frontend/src/services/api.ts` | `hwpApi.convert()`, `hwpApi.toHtml()` 추가 |
-| `frontend/src/App.tsx` | `/hwp` 라우트 추가 |
-| `frontend/src/components/layout/Sidebar.tsx` | "HWP변환" 메뉴 추가 (FileOutput 아이콘) |
+### 1.4 AiChatPanel HWP 업로드 지원
+- 편집기 AI 채팅 패널에서 직접 HWP 파일 업로드 가능 (PDF 업로드와 별도)
+
+### 1.5 장표 라이브러리 CRUD 확인
+- GET/POST/DELETE 모두 정상 동작 확인
+- FastAPI trailing slash 307 redirect 문제 수정 (api.ts에 trailing slash 추가)
 
 ---
 
-## 3. 구현된 API 엔드포인트
+## 2. 수정된 파일 목록 (이번 세션)
 
-| Method | 경로 | 기능 | 비고 |
+### Backend
+| 파일 | 변경 내용 |
+|------|----------|
+| `backend/app/services/libreoffice_service.py` | `_find_form_boundaries()`, `parse_html_sections()`, `extract_html_sections()` — 서식 기준 그룹핑으로 전면 재작성 |
+| `backend/app/services/ai_service.py` | `modify_html()` — diff 기반 수정 방식으로 변경, `_apply_replacements()` 추가 |
+| `backend/app/routers/hwp.py` | `/to-html` 응답에 sections 포함, `POST /extract-sections` 엔드포인트 추가 |
+
+### Frontend
+| 파일 | 변경 내용 |
+|------|----------|
+| `frontend/src/pages/HwpConverter.tsx` | 섹션 선택기 UI 추가 (체크박스 그리드, 전체선택, 선택 서식만 편집기로 열기) |
+| `frontend/src/pages/PageEditor.tsx` | sessionStorage에서 HWP HTML 로드 (StrictMode 대응 useRef 패턴), HWP 직접 업로드 핸들러 |
+| `frontend/src/components/editor/AiChatPanel.tsx` | HWP 업로드 UI 추가 (onHwpUpload prop) |
+| `frontend/src/services/api.ts` | `hwpApi.extractSections()` 추가, library API trailing slash 수정 |
+
+---
+
+## 3. 핵심 구현 상세
+
+### 3.1 서식 그룹핑 알고리즘 (`parse_html_sections`)
+
+```
+HTML에서 [ 서식 N ] 패턴이 포함된 <p> 태그를 찾아 경계로 사용:
+
+표지/목차: body 시작 ~ 서식 1 시작
+서식 1:    서식1 <p> 위치 ~ 서식2 <p> 위치
+서식 2:    서식2 <p> 위치 ~ 서식3 <p> 위치
+...
+서식 13:   서식13 <p> 위치 ~ body 끝
+
+→ 각 서식 범위에 포함된 제목 단락 + 모든 TableControl이 함께 추출됨
+→ "서식 1" 안에 4개 테이블이 있으면 4개 모두 하나의 섹션으로 포함
+```
+
+- `_find_form_boundaries()`: `[ 서식 N ]` 패턴 파싱 + 부제목(다음 단락 텍스트) 추출
+- `parse_html_sections()`: 경계 기반으로 섹션 목록 생성 (index=서식번호, 0=표지)
+- `extract_html_sections()`: 선택된 섹션 HTML 추출 + head/style 유지 + 고아 태그 정리
+
+### 3.2 PageEditor sessionStorage 로딩 (StrictMode 안전)
+
+```typescript
+// render 단계에서 ref로 캡처 (useEffect보다 먼저 실행)
+const hwpDataRef = useRef<{ html: string; fileName: string } | null>(null);
+if (!hwpDataRef.current) {
+  const hwpHtml = sessionStorage.getItem('hwpHtmlContent');
+  if (hwpHtml) {
+    hwpDataRef.current = { html: hwpHtml, fileName: ... };
+    sessionStorage.removeItem('hwpHtmlContent');  // 1회만 사용
+  }
+}
+
+// useEffect에서 ref 읽기 (StrictMode 이중 실행에도 동일 데이터)
+useEffect(() => {
+  const hwpData = hwpDataRef.current;
+  if (hwpData) { setHtmlContent(hwpData.html); ... }
+}, []);
+```
+
+**중요**: `hwpDataRef.current = null` 하면 안 됨 (StrictMode 두 번째 effect에서 데이터 소실)
+
+### 3.3 AI 수정 diff 방식 (`ai_service.py`)
+
+```
+사용자 요청: "3번째 열 너비를 넓혀줘"
+→ Gemini에 원본 HTML + 수정 요청 전송
+→ Gemini 응답: {"replacements": [{"old": "width:30%", "new": "width:50%"}], "description": "3열 너비 확대"}
+→ _apply_replacements()로 원본 HTML에 적용
+→ 실패 시 정규식 유연 매칭(공백 차이 허용) + fallback(전체 HTML 반환/원본 유지)
+```
+
+---
+
+## 4. API 엔드포인트 (현재 전체)
+
+| Method | 경로 | 기능 | 상태 |
 |--------|------|------|------|
-| POST | `/api/hwp/convert` | HWP→PDF 변환 (LibreOffice) | Windows에서 HWP 필터 부재로 동작 안함 |
-| POST | `/api/hwp/to-html` | **HWP→HTML 변환 (pyhwp)** | ✅ 핵심 기능 |
-| POST | `/api/hwp/info` | HWP 파일 정보 (페이지 수) | LibreOffice 의존 |
+| POST | `/api/hwp/to-html` | HWP→HTML 변환 (pyhwp) + 서식 목록 | ✅ 동작 |
+| POST | `/api/hwp/extract-sections` | 선택된 서식만 추출 | ✅ 동작 |
+| POST | `/api/hwp/convert` | HWP→PDF (LibreOffice) | ⚠️ Windows HWP 필터 부재 |
+| POST | `/api/hwp/info` | HWP 페이지 수 | ⚠️ LibreOffice 의존 |
+| POST | `/api/ai/pdf-to-html` | PDF→HTML (Gemini) | ✅ 코드 완성, API키 필요 |
+| POST | `/api/ai/modify` | 자연어 HTML 수정 (diff) | ✅ 코드 완성, API키 필요 |
+| GET/POST/DELETE | `/api/library/` | 장표 라이브러리 CRUD | ✅ 동작 |
 
 ---
 
-## 4. 핵심 기술 상세
+## 5. 알려진 이슈 / 주의사항
 
-### 4.1 pyhwp (python-hwp5)
-- **라이브러리**: `pyhwp>=0.1b15` (PyPI)
-- **CLI 도구**: `hwp5html`
-- **지원 형식**: `.hwp` (HWP5) 만 지원. **HWPX 미지원**
-- **변환 과정**:
-  1. `hwp5html --html --output output.html input.hwp` → HTML 생성
-  2. `hwp5html --css input.hwp` → CSS를 stdout으로 출력 (별도 캡처)
-  3. CSS를 HTML `<link>` 태그 위치에 `<style>` 블록으로 인라인 병합
+### 서버 캐시 문제
+- **Vite**: 코드 변경 후 반영 안 되면 `rm -rf node_modules/.vite` + Vite 재시작 필요
+- **uvicorn**: `__pycache__` 문제 시 `find . -name "__pycache__" -exec rm -rf {} +` + 재시작
 
-### 4.2 HTML 후처리 (`_inject_normalize_css`)
+### 서식 그룹핑 한계
+- `[ 서식 N ]` 패턴이 없는 HWP 파일은 섹션 목록이 빈 배열 → 전체 HTML을 그대로 사용
+- "서식 8의 참여인력 현황표에 기재된" 같은 참조 문구는 필터링됨
 
-pyhwp 원본 HTML은 브라우저에서 레이아웃 문제가 있어서 후처리 수행:
-
-#### (1) TableControl 구조 수정 (`_fix_table_control_structure`)
-- **문제**: pyhwp가 `<p><span class="TableControl"><table>...</table></span></p>` 구조 생성
-- **원인**: HTML 파서가 `<p>` 안에 `<table>`(블록 요소)을 허용하지 않아 테이블이 p 밖으로 이탈
-- **해결**: `<p>+<span>` 래퍼를 제거하고 `<div class="TableControl" style="width: fit-content; margin: 0 auto;">` 로 변환
-- **정렬**: CSS에서 `text-align: center`인 `parashape-*` 클래스를 파싱하여 중앙정렬 여부 결정
-- **중첩 처리**: 테이블 depth 카운팅으로 중첩 테이블 정확히 매칭 + 재귀 호출
-
-#### (2) `.Normal` text-align 제거
-- **문제**: `.Normal { text-align: justify }` 가 `p.parashape-* { text-align: center }` 보다 높은 우선순위로 적용되는 경우가 있음
-- **해결**: 정규식으로 `.Normal` 클래스의 `text-align` 속성을 주석 처리
-
-#### (3) 폰트 정규화 CSS 삽입
-- Google Fonts CDN (나눔고딕, 나눔명조) import
-- HWP 전용 폰트 → 로컬 폰트 `@font-face` fallback 선언 (함초롬바탕, 한컴바탕, HY헤드라인M 등)
-- 전역 body 폰트 fallback 체인 (맑은 고딕 → Nanum Gothic → sans-serif)
-
-#### (4) 테이블/레이아웃 보정 CSS
-- `border-collapse: collapse`, `vertical-align: middle`
-- `.Paper` 클래스 중앙정렬 + 인쇄 최적화
-
-### 4.3 LibreOffice 환경변수 충돌
-- VS Code의 Python 환경변수(`PYTHONHOME`, `PYTHONPATH` 등)가 LibreOffice 내장 Python 3.12와 충돌
-- `_clean_env()` 함수로 subprocess 실행 시 해당 환경변수 제거
-- "Could not find platform independent libraries" 경고는 비치명적 (WARNING)
+### Gemini AI
+- `.env`에 `GEMINI_API_KEY` 설정 필요
+- 모델: `gemini-2.5-flash` (ai_service.py)
+- 대용량 HTML 수정 시 diff 방식이므로 `max_output_tokens: 8192`로 충분
 
 ---
 
-## 5. 알려진 제한사항 / 남은 이슈
+## 6. 다음 세션에서 이어갈 작업
 
-### 변환 품질
-| 항목 | 상태 | 비고 |
-|------|------|------|
-| 표 구조 | ✅ 양호 | colspan, rowspan 유지 |
-| 텍스트 정렬 (중앙/좌측) | ✅ 해결 | TableControl 구조 변환으로 해결 |
-| 폰트 | ⚠️ 부분적 | 로컬 미설치 폰트는 fallback 적용 |
-| 미세 여백/간격 | ⚠️ 미조정 | pyhwp 한계, 편집기에서 수동 보정 가능 |
-| HWPX 지원 | ❌ 미지원 | pyhwp가 HWP5만 지원 |
-| 이미지 | ❌ 미지원 | pyhwp의 hwp5html이 이미지 추출 미구현 |
-
-### 미세 조정이 필요한 영역 (낮은 우선순위)
-- 일부 셀 내 텍스트 정렬 미세 차이
-- 폰트 사이즈/weight 차이 (원본 HWP 대비)
-- 이런 부분은 Phase 2 편집기(Monaco)에서 수동 보정 예정
-
----
-
-## 6. 프론트엔드 HWP 변환 테스트 페이지
-
-### 경로: `/hwp` (HwpConverter.tsx)
-- HWP 파일 드래그앤드롭 또는 클릭 업로드
-- `.hwp` 파일만 허용 (50MB 제한)
-- 업로드 즉시 `POST /api/hwp/to-html` 호출
-- 결과: iframe 미리보기 + HTML 소스코드 토글 + 새 창 열기
-
----
-
-## 7. 다음 세션에서 이어갈 작업
-
-### Phase 2 나머지 (편집기 보완)
-- [ ] Gemini AI 연동 테스트 (PDF→HTML, 자연어 수정) — 이전 세션에서 코드 생성됨, 실행 확인 필요
-- [ ] Monaco 편집기에 HWP→HTML 변환 결과 로드 연동
-- [ ] 장표 라이브러리 CRUD 실행 확인
+### Phase 2 남은 확인 작업
+1. [x] HWP→편집기 연동 (sessionStorage) — **구현 완료, 사용자 확인 완료**
+2. [x] 서식 선택기 (그룹핑) — **구현 완료, 사용자 확인 완료**
+3. [x] 장표 라이브러리 CRUD — **동작 확인 완료**
+4. [ ] **Gemini AI 수정 실제 테스트** — `.env`에 `GEMINI_API_KEY` 설정 후 편집기에서 실사용 확인
+   - diff 기반 수정이 실제 대용량 HWP HTML에서 잘 동작하는지
+   - 편집기 AI 채팅 → 수정 요청 → 미리보기 반영 플로우
 
 ### Phase 3 착수 (장표 조합기 + PDF 출력)
-- 입찰 CRUD API
-- BidWorkspace 드래그앤드롭
+- 입찰 CRUD API + 모델
+- BidWorkspace 페이지 (드래그앤드롭 장표 순서 조정)
 - Playwright HTML→PDF 변환
-- PyPDF2 PDF 병합
+- PyPDF2 PDF 병합 (HTML 장표 + 증빙 PDF 원본)
+
+---
+
+## 7. 전체 워크플로우 (현재 구현된 것)
+
+```
+[HWP 파일] → /hwp 페이지 업로드
+           → pyhwp로 HTML 변환
+           → 서식 목록 표시 (체크박스)
+           → 전체 또는 선택 서식 → /editor 페이지로 이동
+           → Monaco 코드 에디터에서 직접 편집
+           → AI 채팅으로 자연어 수정 요청 (Gemini)
+           → 장표 라이브러리에 저장
+           → (Phase 3) 입찰에 장표 추가 → PDF 출력
+```
 
 ---
 
 ## 8. 실행 방법
 
 ```bash
-# 1. pyhwp 설치 (최초 1회)
-pip install pyhwp
+# 백엔드
+cd backend && pip install pyhwp && uvicorn app.main:app --reload --port 8000
 
-# 2. 백엔드 시작
-cd backend && uvicorn app.main:app --reload --port 8000
+# 프론트엔드
+cd frontend && npm install && npm run dev
 
-# 3. 프론트엔드 시작
-cd frontend && npm run dev
-
-# 4. 테스트
-# http://localhost:5173/hwp → HWP 파일 업로드
-# http://localhost:8000/api/docs → Swagger UI에서 /api/hwp/to-html 테스트
-```
-
----
-
-## 9. 파일 참조 (libreoffice_service.py 구조)
-
-```python
-# 주요 함수
-convert_hwp_to_pdf()       # LibreOffice HWP→PDF (Windows HWP 필터 부재로 동작 안함)
-extract_pages()            # PDF 페이지 범위 추출 (PyPDF2)
-get_pdf_page_count()       # PDF 페이지 수 반환
-convert_hwp_to_html()      # ✅ pyhwp HWP→HTML 변환 (핵심)
-
-# 내부 헬퍼
-_clean_env()               # LibreOffice subprocess용 환경변수 정리
-_find_soffice()            # LibreOffice 실행 파일 경로 탐색
-_fix_table_control_structure()  # <p><span><table> → <div><table> 구조 변환
-_inject_normalize_css()    # 폰트 정규화 + 레이아웃 보정 CSS 삽입
-_FONT_NORMALIZE_CSS        # 폰트 매핑 + 레이아웃 보정 CSS 상수
+# 테스트
+# 1. http://localhost:5173/hwp → HWP 파일 업로드 → 서식 선택 → 편집기로 열기
+# 2. http://localhost:5173/editor → 직접 편집 또는 AI 수정
+# 3. http://localhost:5173/library → 저장된 장표 확인
 ```
