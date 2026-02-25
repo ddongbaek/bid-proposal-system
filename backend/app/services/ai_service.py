@@ -1,0 +1,258 @@
+"""Gemini AI 서비스 모듈 - PDF→HTML 변환 및 HTML 자연어 수정"""
+
+import json
+import logging
+import re
+from typing import Any
+
+from fastapi import HTTPException
+
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _get_gemini_model() -> Any:
+    """Gemini 모델 인스턴스를 반환. API 키 미설정 시 503 예외 발생."""
+    if not settings.GEMINI_API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini API 키가 설정되지 않았습니다. .env 파일에 GEMINI_API_KEY를 설정하세요.",
+        )
+
+    try:
+        import google.generativeai as genai
+
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-2.5-flash")
+        return model
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="google-generativeai 패키지가 설치되지 않았습니다.",
+        )
+    except Exception as e:
+        logger.error("Gemini 모델 초기화 실패: %s", str(e))
+        raise HTTPException(
+            status_code=503,
+            detail=f"Gemini API 초기화 실패: {str(e)}",
+        )
+
+
+def _extract_variables(html_content: str) -> list[str]:
+    """HTML 내 {{변수명}} 패턴을 추출하여 변수 목록을 반환."""
+    pattern = r"\{\{(\w+)\}\}"
+    variables = re.findall(pattern, html_content)
+    # 중복 제거, 순서 유지
+    seen: set[str] = set()
+    unique: list[str] = []
+    for v in variables:
+        if v not in seen:
+            seen.add(v)
+            unique.append(v)
+    return unique
+
+
+def _parse_ai_response(response_text: str) -> dict[str, str]:
+    """AI 응답 텍스트에서 HTML과 CSS를 파싱.
+
+    프롬프트가 완전한 HTML 문서(CSS 인라인 포함)를 반환하도록 되어 있으므로,
+    HTML을 통째로 추출하고 CSS는 별도 분리하지 않는다.
+    """
+    html_content = ""
+    css_content = ""
+
+    # HTML 코드 블록 추출
+    html_match = re.search(
+        r"```html\s*\n(.*?)```", response_text, re.DOTALL
+    )
+    if html_match:
+        html_content = html_match.group(1).strip()
+    else:
+        # 코드 블록이 없으면 전체를 HTML로 간주 (코드 펜스 제거)
+        cleaned = re.sub(r"```\w*\s*\n?", "", response_text)
+        cleaned = re.sub(r"```", "", cleaned)
+        html_content = cleaned.strip()
+
+    # 별도 CSS 코드 블록이 있으면 추출 (호환성)
+    css_match = re.search(
+        r"```css\s*\n(.*?)```", response_text, re.DOTALL
+    )
+    if css_match:
+        css_content = css_match.group(1).strip()
+
+    # CSS는 HTML <style> 내에 포함되어 있으므로 별도 분리하지 않음
+    # (프론트엔드 PreviewPanel이 완전한 HTML 문서를 그대로 렌더링)
+
+    return {
+        "html_content": html_content,
+        "css_content": css_content,
+    }
+
+
+async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
+    """PDF 바이트를 Gemini에 보내 HTML/CSS로 변환.
+
+    Args:
+        pdf_content: PDF 파일의 바이트 데이터
+        instructions: 추가 변환 지시사항 (선택)
+
+    Returns:
+        dict: {
+            "html_content": str,
+            "css_content": str | None,
+            "detected_variables": list[str],
+            "message": str
+        }
+
+    Raises:
+        HTTPException: API 키 미설정(503), 변환 실패(500)
+    """
+    model = _get_gemini_model()
+
+    # 프롬프트 구성 - 짧고 직접적으로
+    base_prompt = """이 PDF를 보고 **스크린샷처럼 똑같이 생긴** HTML을 만들어라.
+
+금지사항:
+- 디자인 변경/개선 절대 금지. 못생겨도 원본 그대로.
+- 표 구조 변경 금지. colspan/rowspan 원본과 정확히 일치.
+- 폰트 변경 금지. 원본이 돋움이면 돋움, 바탕이면 바탕. (font-family: '돋움', Dotum, sans-serif)
+- 여백/간격 변경 금지. 표 사이 간격, 셀 패딩 원본과 동일.
+
+필수사항:
+- 빈칸(작성할 곳)은 {{변수명}} 으로 표시 (영문 snake_case)
+- 이미 적힌 텍스트는 그대로 유지
+- 도장/인감/직인이 있으면 그 위치에 <img class="stamp" src="{{stamp_image}}" style="width:Xmm;height:Ymm;"> 삽입
+- A4 크기: body { width:210mm; min-height:297mm; }
+- CSS는 <style> 안에 포함
+
+```html 코드 블록 하나만 반환. 설명 불필요."""
+
+    if instructions:
+        base_prompt += f"\n\n추가 지시: {instructions}"
+
+    try:
+        # PDF를 먼저 보여주고 프롬프트를 뒤에 (시각 중심 처리)
+        response = model.generate_content(
+            [
+                {"mime_type": "application/pdf", "data": pdf_content},
+                base_prompt,
+            ],
+            generation_config={
+                "temperature": 0.0,
+                "max_output_tokens": 65536,
+            },
+        )
+
+        if not response.text:
+            raise HTTPException(
+                status_code=500,
+                detail="AI가 빈 응답을 반환했습니다. 다시 시도해주세요.",
+            )
+
+        parsed = _parse_ai_response(response.text)
+        detected_vars = _extract_variables(parsed["html_content"])
+
+        return {
+            "html_content": parsed["html_content"],
+            "css_content": parsed["css_content"] or None,
+            "detected_variables": detected_vars,
+            "message": f"변환 완료. {len(detected_vars)}개의 변수(빈칸)가 감지되었습니다.",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("PDF→HTML 변환 실패: %s", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"PDF→HTML 변환 중 오류 발생: {str(e)}",
+        )
+
+
+async def modify_html(
+    html_content: str, css_content: str | None, request: str
+) -> dict:
+    """기존 HTML/CSS에 대해 자연어 수정 요청을 처리.
+
+    Args:
+        html_content: 현재 HTML 코드
+        css_content: 현재 CSS 코드 (선택)
+        request: 자연어 수정 요청 (예: "3번째 열 너비를 넓혀줘")
+
+    Returns:
+        dict: {
+            "html_content": str,
+            "css_content": str | None,
+            "changes_description": str
+        }
+
+    Raises:
+        HTTPException: API 키 미설정(503), 수정 실패(500)
+    """
+    model = _get_gemini_model()
+
+    prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
+
+## 현재 HTML
+```html
+{html_content}
+```
+
+## 현재 CSS
+```css
+{css_content or "/* CSS 없음 */"}
+```
+
+## 수정 요청
+{request}
+
+## 규칙
+1. 요청에 따라 HTML 및/또는 CSS를 수정하세요.
+2. 기존 구조는 최대한 유지하면서 요청한 부분만 변경하세요.
+3. {{변수명}} 플레이스홀더가 있으면 그대로 유지하세요.
+4. 수정된 HTML과 CSS를 각각 ```html 과 ```css 코드 블록으로 반환하세요.
+5. 마지막에 "변경 설명:" 으로 시작하는 줄에 변경 내용을 한 줄로 요약하세요.
+"""
+
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.2,
+                "max_output_tokens": 8192,
+            },
+        )
+
+        if not response.text:
+            raise HTTPException(
+                status_code=500,
+                detail="AI가 빈 응답을 반환했습니다. 다시 시도해주세요.",
+            )
+
+        parsed = _parse_ai_response(response.text)
+
+        # 변경 설명 추출
+        changes_description = ""
+        desc_match = re.search(
+            r"변경\s*설명\s*[:：]\s*(.+)", response.text
+        )
+        if desc_match:
+            changes_description = desc_match.group(1).strip()
+        else:
+            changes_description = "수정이 완료되었습니다."
+
+        return {
+            "html_content": parsed["html_content"],
+            "css_content": parsed["css_content"] or None,
+            "changes_description": changes_description,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("HTML 수정 실패: %s", str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"HTML 수정 중 오류 발생: {str(e)}",
+        )

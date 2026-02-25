@@ -10,7 +10,7 @@
 - 증빙서류 PDF를 수동으로 합치는 수작업
 
 ### 핵심 컨셉: "페이지 조합기"
-1. 발주처 양식 PDF를 **AI(Gemini)가 HTML로 자동 변환**
+1. 발주처 양식 HWP를 **pyhwp로 HTML 변환** (보조: Gemini AI)
 2. 인력 DB에서 데이터를 끌어와 HTML 장표에 **자동 채움**
 3. 증빙 PDF는 **원본 그대로** 첨부
 4. 모든 장표를 **레이어 패널**에서 순서 조정 (드래그앤드롭)
@@ -30,11 +30,11 @@
 | Phase 0 | ✅ 완료 | 프로젝트 문서화 |
 | Phase 1 | ✅ 완료 | 기반 인프라 + 인력관리 |
 | Phase 1.5 | ✅ 완료 | 재직증명서 출력 기능 |
-| Phase 2 | 미착수 | AI 장표 생성 + 편집기 |
+| Phase 2 | 🔧 진행중 | AI 장표 생성 + 편집기 + HWP→HTML 변환 |
 | Phase 3 | 미착수 | 장표 조합기 + PDF 출력 |
 | Phase 4 | 미착수 | 마무리 (Docker 프로덕션, 설정, 백업) |
 
-**최신 인수인계 문서**: `docs/handover-phase1.md`
+**최신 인수인계 문서**: `docs/handover-phase2-hwp.md` (HWP 변환), `docs/handover-phase2.md` (AI 편집기)
 
 ---
 
@@ -43,7 +43,7 @@
 ### Frontend
 - **React 18** + TypeScript + Vite
 - **Tailwind CSS** + **lucide-react** (아이콘)
-- **Monaco Editor** (HTML 코드 편집기, Phase 2 예정)
+- **Monaco Editor** (@monaco-editor/react, HTML/CSS 코드 편집기)
 - **@dnd-kit/core** (드래그앤드롭, Phase 3 예정)
 - **React Router v6** (라우팅)
 - **Axios** (API 통신)
@@ -57,6 +57,12 @@
 - **Google Gemini API** (gemini-2.0-flash 또는 pro)
   - PDF → HTML 변환
   - 자연어로 HTML 수정 요청
+
+### HWP 처리
+- **pyhwp (python-hwp5)** (HWP5 → HTML 변환, hwp5html CLI)
+  - `.hwp` 파일만 지원 (HWPX 미지원)
+  - HTML + CSS 별도 생성 후 인라인 병합
+  - 후처리: TableControl 구조 변환, .Normal text-align 제거, 폰트 정규화
 
 ### PDF 처리 (Phase 3 예정)
 - **Playwright** (Chromium 기반 HTML→PDF 변환, 한글 완벽 지원)
@@ -110,12 +116,19 @@ bid-proposal-system/
 │       ├── components/
 │       │   ├── certificate/      # 재직증명서 출력 (모달, HTML템플릿, 로고/직인 base64)
 │       │   ├── common/           # Pagination, SearchBar, Modal, ConfirmDialog
+│       │   ├── editor/           # 장표 편집기 컴포넌트 (Phase 2)
+│       │   │   ├── AiChatPanel.tsx      # AI 채팅 패널 (자연어 수정, PDF 업로드)
+│       │   │   ├── CodeEditorPanel.tsx  # Monaco 코드 에디터 (HTML/CSS 탭)
+│       │   │   └── PreviewPanel.tsx     # A4 실시간 미리보기 (iframe)
 │       │   └── layout/           # Layout, Sidebar (접기/펴기), Header
 │       └── pages/
 │           ├── Dashboard.tsx     # 대시보드 (상태 카드 + 입찰 목록)
 │           ├── PersonnelList.tsx # 인력 목록 (테이블, 검색, 필터, 페이지네이션)
 │           ├── PersonnelEdit.tsx # 인력 등록/편집 (3탭: 기본정보/자격증/프로젝트이력) + 재직증명서 버튼
+│           ├── PageEditor.tsx    # 장표 편집기 (3분할: AI채팅|코드|미리보기)
+│           ├── Library.tsx       # 장표 보관함 (카드 그리드, 카테고리 필터)
 │           ├── BidList.tsx       # 입찰 목록 (플레이스홀더)
+│           ├── HwpConverter.tsx  # HWP→HTML 변환 테스트 페이지
 │           └── Settings.tsx      # 설정 (플레이스홀더)
 │
 ├── backend/                      # Python FastAPI 백엔드
@@ -132,9 +145,15 @@ bid-proposal-system/
 │       │   └── bid.py            # Bid, BidPage, BidPersonnel, PageLibrary
 │       ├── schemas/
 │       │   ├── personnel.py      # Pydantic 스키마 (Create/Update/Summary/Detail/List)
-│       │   └── bid.py            # 입찰 기본 스키마 (Phase 3 확장 예정)
+│       │   └── bid.py            # 입찰/AI/장표라이브러리 스키마
+│       ├── services/
+│       │   ├── ai_service.py         # Gemini API 연동 (PDF→HTML, HTML 수정)
+│       │   └── libreoffice_service.py # HWP→HTML(pyhwp) + PDF 처리
 │       └── routers/
-│           └── personnel.py      # 인력 CRUD 13개 엔드포인트
+│           ├── personnel.py      # 인력 CRUD 13개 엔드포인트
+│           ├── ai.py             # AI API (pdf-to-html, modify)
+│           ├── library.py        # 장표 라이브러리 CRUD
+│           └── hwp.py            # HWP 변환 API (to-html, convert, info)
 │
 ├── data/                         # 데이터 저장소 (gitignore 대상)
 │   ├── db/                       # SQLite DB 파일 (자동 생성)
@@ -148,7 +167,9 @@ bid-proposal-system/
 
 ---
 
-## 구현된 API 엔드포인트 (Phase 1)
+## 구현된 API 엔드포인트
+
+### Phase 1: 인력 관리 (14개)
 
 | Method | 경로 | 기능 |
 |--------|------|------|
@@ -166,6 +187,26 @@ bid-proposal-system/
 | PUT | /api/personnel/{id}/projects/{project_id} | 프로젝트 이력 수정 |
 | DELETE | /api/personnel/{id}/projects/{project_id} | 프로젝트 이력 삭제 |
 | GET | /api/health | 헬스체크 |
+| POST | /api/hwp/to-html | HWP→HTML 변환 (pyhwp) |
+| POST | /api/hwp/convert | HWP→PDF 변환 (LibreOffice, Windows 미동작) |
+| POST | /api/hwp/info | HWP 파일 정보 (페이지 수) |
+| POST | /api/ai/pdf-to-html | PDF→HTML AI 변환 (Gemini) |
+| POST | /api/ai/modify | HTML 자연어 수정 (Gemini) |
+| GET | /api/library | 장표 라이브러리 목록 |
+| POST | /api/library | 장표 라이브러리 저장 |
+| GET | /api/library/{id} | 장표 상세 조회 |
+| DELETE | /api/library/{id} | 장표 삭제 |
+
+### Phase 2: AI + 장표 라이브러리 (6개)
+
+| Method | 경로 | 기능 |
+|--------|------|------|
+| POST | /api/ai/pdf-to-html | PDF → AI HTML/CSS 변환 (Gemini) |
+| POST | /api/ai/modify | 자연어 요청으로 HTML/CSS 수정 |
+| GET | /api/library | 장표 라이브러리 목록 (카테고리 필터) |
+| POST | /api/library | 장표 라이브러리 저장 |
+| GET | /api/library/{id} | 장표 상세 조회 (HTML/CSS 포함) |
+| DELETE | /api/library/{id} | 장표 삭제 |
 
 ---
 
@@ -204,7 +245,15 @@ bid-proposal-system/
 - 주민등록번호 DB 저장 (출력 시 뒷자리 마스킹)
 - 증명서 번호 localStorage 자동증가 (수동 변경 가능)
 - Pretendard 폰트(CDN), KOIS 로고 + 직인 이미지 base64 인라인
-### Phase 2: AI 장표 생성 + 편집기
+### Phase 2: AI 장표 생성 + 편집기 (🔧 진행중)
+- Gemini API 연동 (gemini-2.0-flash) - PDF→HTML 변환, 자연어 HTML 수정
+- 장표 편집기 (3분할: AI채팅 | Monaco코드에디터 | A4미리보기)
+- AI 채팅 패널 (자연어 수정 요청 + PDF 업로드 변환)
+- 장표 라이브러리 CRUD (저장/불러오기/삭제, 카테고리 필터)
+- 독립 편집기 경로 (/editor) + 입찰 내 편집 경로 (/bids/:id/pages/:pageId/edit)
+- **HWP→HTML 변환** (pyhwp 기반) - 표/양식 구조 유지, 폰트 정규화, 정렬 보정
+- HWP 변환 테스트 페이지 (/hwp)
+- 남은 작업: Gemini 실행 확인, 편집기에 HWP 변환 결과 로드 연동
 ### Phase 3: 장표 조합기 + PDF 출력
 ### Phase 4: 마무리 (Docker 프로덕션, 설정, 백업)
 
@@ -251,3 +300,10 @@ docker-compose up --build
 | 2026-02-25 | 재직증명서를 백엔드 PDF 생성 대신 프론트 HTML+브라우저 인쇄 방식 | 서버 의존성 없이 즉시 출력 가능 |
 | 2026-02-25 | Pretendard 폰트 CDN 사용 | 한글 웹폰트 중 가장 범용적, 인쇄 품질 우수 |
 | 2026-02-25 | 간이 마이그레이션(ALTER TABLE) 도입 | Alembic 없이 기존 DB 호환 유지 |
+| 2026-02-25 | gemini-2.0-flash 모델 사용 (temperature 0.1~0.2) | 정확한 변환 우선, 비용 대비 성능 최적 |
+| 2026-02-25 | 장표 편집기를 독립 경로(/editor)로 분리 | 입찰 없이도 장표 생성/편집 가능 |
+| 2026-02-25 | Monaco Editor vs-dark 테마 | 코드 가독성, 개발자 친화적 |
+| 2026-02-25 | Gemini PDF→HTML 대신 pyhwp HWP→HTML 채택 | Gemini 변환 품질 부족, pyhwp가 표/양식 구조 정확히 유지 |
+| 2026-02-25 | pyhwp (python-hwp5) 라이브러리 사용 | HWP5 형식 직접 파싱, hwp5html CLI로 HTML+CSS 생성 |
+| 2026-02-25 | LibreOffice HWP 변환 포기 (Windows) | LibreOffice 26.2 Windows 빌드에 HWP 필터 DLL 누락 |
+| 2026-02-25 | HTML 후처리로 TableControl 구조 변환 | HTML 파서가 p 안의 table을 분리시키는 문제 해결 |

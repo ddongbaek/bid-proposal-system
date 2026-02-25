@@ -24,19 +24,19 @@ export interface Personnel {
 
 export interface PersonnelCreate {
   name: string;
-  title?: string;
-  department?: string;
+  title?: string | null;
+  department?: string | null;
   birth_date?: string | null;
-  resident_number?: string;
-  phone?: string;
-  email?: string;
-  education_level?: string;
-  education_school?: string;
-  education_major?: string;
+  resident_number?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  education_level?: string | null;
+  education_school?: string | null;
+  education_major?: string | null;
   graduation_year?: number | null;
   hire_date?: string | null;
-  years_of_experience?: number;
-  notes?: string;
+  years_of_experience?: number | null;
+  notes?: string | null;
 }
 
 export interface PersonnelSummary {
@@ -91,12 +91,12 @@ export interface ProjectHistory {
 
 export interface ProjectHistoryCreate {
   project_name: string;
-  client?: string;
-  role?: string;
+  client?: string | null;
+  role?: string | null;
   start_date?: string | null;
   end_date?: string | null;
-  budget?: string;
-  description?: string;
+  budget?: string | null;
+  description?: string | null;
 }
 
 // ===== 입찰 관련 타입 =====
@@ -118,6 +118,63 @@ export interface BidListResponse {
   total: number;
   page: number;
   size: number;
+}
+
+// ===== 장표 라이브러리 관련 타입 =====
+
+export interface PageLibraryItem {
+  id: number;
+  name: string;
+  category: string | null;
+  html_content: string;
+  css_content: string | null;
+  description: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PageLibrarySummary {
+  id: number;
+  name: string;
+  category: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface PageLibraryCreate {
+  name: string;
+  category?: string;
+  html_content: string;
+  css_content?: string;
+  description?: string;
+}
+
+// ===== AI 관련 타입 =====
+
+export interface AiPdfToHtmlResponse {
+  html_content: string;
+  css_content: string | null;
+  detected_variables: string[];
+  message: string;
+}
+
+export interface AiModifyRequest {
+  html_content: string;
+  css_content?: string;
+  request: string;
+}
+
+export interface AiModifyResponse {
+  html_content: string;
+  css_content: string | null;
+  changes_description: string;
+}
+
+// AI 채팅 메시지
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
 }
 
 // ===== 공통 타입 =====

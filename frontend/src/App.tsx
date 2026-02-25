@@ -4,7 +4,10 @@ import Dashboard from './pages/Dashboard';
 import PersonnelList from './pages/PersonnelList';
 import PersonnelEdit from './pages/PersonnelEdit';
 import BidList from './pages/BidList';
+import PageEditor from './pages/PageEditor';
+import Library from './pages/Library';
 import Settings from './pages/Settings';
+import HwpConverter from './pages/HwpConverter';
 
 export default function App() {
   return (
@@ -16,7 +19,10 @@ export default function App() {
           <Route path="/personnel/new" element={<PersonnelEdit />} />
           <Route path="/personnel/:id/edit" element={<PersonnelEdit />} />
           <Route path="/bids" element={<BidList />} />
-          <Route path="/library" element={<div className="text-center py-20 text-gray-400">장표 보관함 (Phase 2에서 구현 예정)</div>} />
+          <Route path="/editor" element={<PageEditor />} />
+          <Route path="/bids/:bidId/pages/:pageId/edit" element={<PageEditor />} />
+          <Route path="/library" element={<Library />} />
+          <Route path="/hwp" element={<HwpConverter />} />
           <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>

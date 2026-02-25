@@ -4,6 +4,7 @@ const pageTitles: Record<string, string> = {
   '/': '대시보드',
   '/personnel': '인력관리',
   '/bids': '입찰관리',
+  '/editor': '장표 편집기',
   '/library': '장표보관',
   '/settings': '설정',
 };
@@ -21,8 +22,14 @@ export default function Header() {
     if (location.pathname.startsWith('/personnel/')) {
       return '인력관리';
     }
+    if (location.pathname.startsWith('/bids/') && location.pathname.includes('/pages/') && location.pathname.includes('/edit')) {
+      return '장표 편집기';
+    }
     if (location.pathname.startsWith('/bids/')) {
       return '입찰관리';
+    }
+    if (location.pathname.startsWith('/editor')) {
+      return '장표 편집기';
     }
     return '정량제안서 관리 시스템';
   };

@@ -7,6 +7,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  FileOutput,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -14,6 +15,7 @@ const menuItems = [
   { path: '/', label: '대시보드', icon: LayoutDashboard },
   { path: '/personnel', label: '인력관리', icon: Users },
   { path: '/bids', label: '입찰관리', icon: FileText },
+  { path: '/hwp', label: 'HWP변환', icon: FileOutput },
   { path: '/library', label: '장표보관', icon: Library },
   { path: '/settings', label: '설정', icon: Settings },
 ];
