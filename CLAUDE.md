@@ -28,7 +28,8 @@
 | Phase | 상태 | 설명 |
 |-------|------|------|
 | Phase 0 | ✅ 완료 | 프로젝트 문서화 |
-| Phase 1 | ✅ 코드 완료 (실행 확인 대기) | 기반 인프라 + 인력관리 |
+| Phase 1 | ✅ 완료 | 기반 인프라 + 인력관리 |
+| Phase 1.5 | ✅ 완료 | 재직증명서 출력 기능 |
 | Phase 2 | 미착수 | AI 장표 생성 + 편집기 |
 | Phase 3 | 미착수 | 장표 조합기 + PDF 출력 |
 | Phase 4 | 미착수 | 마무리 (Docker 프로덕션, 설정, 백업) |
@@ -107,12 +108,13 @@ bid-proposal-system/
 │       ├── services/
 │       │   └── api.ts            # Axios API 호출 (personnelApi, certificationApi 등)
 │       ├── components/
+│       │   ├── certificate/      # 재직증명서 출력 (모달, HTML템플릿, 로고/직인 base64)
 │       │   ├── common/           # Pagination, SearchBar, Modal, ConfirmDialog
 │       │   └── layout/           # Layout, Sidebar (접기/펴기), Header
 │       └── pages/
 │           ├── Dashboard.tsx     # 대시보드 (상태 카드 + 입찰 목록)
 │           ├── PersonnelList.tsx # 인력 목록 (테이블, 검색, 필터, 페이지네이션)
-│           ├── PersonnelEdit.tsx # 인력 등록/편집 (3탭: 기본정보/자격증/프로젝트이력)
+│           ├── PersonnelEdit.tsx # 인력 등록/편집 (3탭: 기본정보/자격증/프로젝트이력) + 재직증명서 버튼
 │           ├── BidList.tsx       # 입찰 목록 (플레이스홀더)
 │           └── Settings.tsx      # 설정 (플레이스홀더)
 │
@@ -122,7 +124,7 @@ bid-proposal-system/
 │   └── app/
 │       ├── main.py               # FastAPI 앱 (CORS, IP필터, 라우터, startup)
 │       ├── config.py             # pydantic-settings 환경설정
-│       ├── database.py           # SQLAlchemy 엔진/세션/get_db/create_tables
+│       ├── database.py           # SQLAlchemy 엔진/세션/get_db/create_tables + 간이 마이그레이션
 │       ├── middleware/
 │       │   └── ip_filter.py      # IP 화이트리스트 (YAML, 네트워크 대역 지원)
 │       ├── models/
@@ -196,7 +198,12 @@ bid-proposal-system/
 ## 구현 순서
 
 ### Phase 0: 프로젝트 문서화 ✅
-### Phase 1: 기반 인프라 + 인력관리 ✅ (실행 확인 대기)
+### Phase 1: 기반 인프라 + 인력관리 ✅
+### Phase 1.5: 재직증명서 출력 ✅
+- 인력 편집 페이지에서 [재직증명서] 버튼 → 설정 모달 → 새 창 HTML 렌더링 → Ctrl+P 인쇄
+- 주민등록번호 DB 저장 (출력 시 뒷자리 마스킹)
+- 증명서 번호 localStorage 자동증가 (수동 변경 가능)
+- Pretendard 폰트(CDN), KOIS 로고 + 직인 이미지 base64 인라인
 ### Phase 2: AI 장표 생성 + 편집기
 ### Phase 3: 장표 조합기 + PDF 출력
 ### Phase 4: 마무리 (Docker 프로덕션, 설정, 백업)
@@ -241,3 +248,6 @@ docker-compose up --build
 | 2026-02-24 | shadcn/ui 대신 Tailwind + lucide-react 조합 | 설치 복잡도 감소, 직접 컴포넌트 구현 |
 | 2026-02-24 | Alembic 마이그레이션 미사용 (Phase 1) | 초기 개발 단계, create_all로 충분 |
 | 2026-02-24 | 멀티에이전트 병렬 개발 (worktree 격리) | 백엔드/프론트엔드 동시 개발 효율화 |
+| 2026-02-25 | 재직증명서를 백엔드 PDF 생성 대신 프론트 HTML+브라우저 인쇄 방식 | 서버 의존성 없이 즉시 출력 가능 |
+| 2026-02-25 | Pretendard 폰트 CDN 사용 | 한글 웹폰트 중 가장 범용적, 인쇄 품질 우수 |
+| 2026-02-25 | 간이 마이그레이션(ALTER TABLE) 도입 | Alembic 없이 기존 DB 호환 유지 |
