@@ -1,7 +1,9 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, FileText, Loader2, X, ExternalLink, Code, Pencil, CheckSquare, Square } from 'lucide-react';
-import { hwpApi } from '../services/api';
+import { Upload, FileText, Loader2, X, ExternalLink, Code, Pencil, CheckSquare, Square, FolderPlus } from 'lucide-react';
+import { hwpApi, bidApi } from '../services/api';
+import type { Bid } from '../types';
+import Modal from '../components/common/Modal';
 
 const ALLOWED_EXTENSIONS = ['.hwp'];
 
@@ -27,6 +29,12 @@ export default function HwpConverter() {
   const [selectedSections, setSelectedSections] = useState<Set<number>>(new Set());
   // 소스코드 보기 토글
   const [showSource, setShowSource] = useState(false);
+
+  // 입찰에 추가 모달
+  const [showBidModal, setShowBidModal] = useState(false);
+  const [bidList, setBidList] = useState<Bid[]>([]);
+  const [bidLoading, setBidLoading] = useState(false);
+  const [addingToBid, setAddingToBid] = useState<number | null>(null);
 
   const resetState = () => {
     setFile(null);
@@ -111,6 +119,48 @@ export default function HwpConverter() {
       setSelectedSections(new Set());
     } else {
       setSelectedSections(new Set(sections.map((s) => s.index)));
+    }
+  };
+
+  const openBidModal = async () => {
+    setShowBidModal(true);
+    setBidLoading(true);
+    try {
+      const result = await bidApi.list({ size: 50 });
+      setBidList(result.items.filter((b) => b.status !== 'complete'));
+    } catch {
+      setBidList([]);
+    } finally {
+      setBidLoading(false);
+    }
+  };
+
+  const handleAddToBid = async (bid: Bid, useSelectedSections: boolean) => {
+    if (!htmlContent && !useSelectedSections) return;
+    setAddingToBid(bid.id);
+
+    try {
+      let html = htmlContent!;
+
+      // 선택된 서식만 추출해서 추가
+      if (useSelectedSections && file && selectedSections.size > 0) {
+        const indices = Array.from(selectedSections).sort((a, b) => a - b);
+        const result = await hwpApi.extractSections(file, indices);
+        html = result.html_content;
+      }
+
+      await bidApi.addPageHtml(bid.id, {
+        page_name: file?.name?.replace(/\.hwp$/i, '') || 'HWP 변환',
+        html_content: html,
+        css_content: null,
+      });
+
+      setShowBidModal(false);
+      navigate(`/bids/${bid.id}/workspace`);
+    } catch {
+      alert('장표 추가에 실패했습니다.');
+    } finally {
+      setAddingToBid(null);
     }
   };
 
@@ -200,11 +250,18 @@ export default function HwpConverter() {
                 {htmlContent && (
                   <>
                     <button
+                      onClick={openBidModal}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors font-medium"
+                    >
+                      <FolderPlus size={14} />
+                      입찰에 추가
+                    </button>
+                    <button
                       onClick={handleOpenInEditor}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700 transition-colors font-medium"
                     >
                       <Pencil size={14} />
-                      전체 편집기에서 열기
+                      편집기에서 열기
                     </button>
                     <button
                       onClick={handleOpenNewWindow}
@@ -320,6 +377,54 @@ export default function HwpConverter() {
           )}
         </div>
       )}
+
+      {/* 입찰 선택 모달 */}
+      <Modal
+        isOpen={showBidModal}
+        onClose={() => setShowBidModal(false)}
+        title="입찰에 장표 추가"
+      >
+        {bidLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="animate-spin text-blue-500" size={24} />
+          </div>
+        ) : bidList.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <p>진행중인 입찰이 없습니다.</p>
+            <p className="text-sm mt-1">먼저 입찰을 생성하세요.</p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto">
+            {selectedSections.size > 0 && sections.length > 1 && (
+              <p className="text-xs text-indigo-600 mb-2">
+                선택된 서식 {selectedSections.size}개가 장표로 추가됩니다.
+              </p>
+            )}
+            {bidList.map((bid) => (
+              <button
+                key={bid.id}
+                onClick={() => handleAddToBid(bid, selectedSections.size > 0 && sections.length > 1)}
+                disabled={addingToBid !== null}
+                className="w-full flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:bg-green-50 hover:border-green-300 transition-colors text-left disabled:opacity-50"
+              >
+                {addingToBid === bid.id ? (
+                  <Loader2 size={20} className="animate-spin text-green-500 flex-shrink-0" />
+                ) : (
+                  <FileText size={20} className="text-green-500 flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{bid.bid_name}</p>
+                  <p className="text-xs text-gray-500">
+                    {bid.client_name && `${bid.client_name} · `}
+                    장표 {bid.page_count}개
+                    {bid.deadline && ` · 마감 ${bid.deadline}`}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

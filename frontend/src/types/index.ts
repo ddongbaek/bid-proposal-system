@@ -101,16 +101,50 @@ export interface ProjectHistoryCreate {
 
 // ===== 입찰 관련 타입 =====
 
+export type BidStatus = 'draft' | 'review' | 'complete';
+
 export interface Bid {
   id: number;
   bid_name: string;
-  client_name: string;
-  bid_number: string;
+  client_name: string | null;
+  bid_number: string | null;
   deadline: string | null;
-  status: 'draft' | 'review' | 'complete';
+  status: BidStatus;
   page_count: number;
   personnel_count: number;
   created_at: string;
+}
+
+export interface BidCreate {
+  bid_name: string;
+  client_name?: string | null;
+  bid_number?: string | null;
+  deadline?: string | null;
+  requirements_text?: string | null;
+}
+
+export interface BidUpdate {
+  bid_name?: string | null;
+  client_name?: string | null;
+  bid_number?: string | null;
+  deadline?: string | null;
+  status?: BidStatus | null;
+  requirements_text?: string | null;
+}
+
+export interface BidDetail {
+  id: number;
+  bid_name: string;
+  client_name: string | null;
+  bid_number: string | null;
+  deadline: string | null;
+  status: BidStatus;
+  notice_file_path: string | null;
+  requirements_text: string | null;
+  pages: BidPage[];
+  personnel: BidPersonnel[];
+  created_at: string;
+  updated_at: string;
 }
 
 export interface BidListResponse {
@@ -118,6 +152,61 @@ export interface BidListResponse {
   total: number;
   page: number;
   size: number;
+}
+
+// ===== 입찰 장표 관련 타입 =====
+
+export type PageType = 'html' | 'pdf';
+
+export interface BidPage {
+  id: number;
+  bid_id: number;
+  page_type: PageType;
+  page_name: string | null;
+  sort_order: number;
+  html_content: string | null;
+  css_content: string | null;
+  pdf_file_path: string | null;
+  pdf_page_start: number | null;
+  pdf_page_end: number | null;
+  thumbnail_path: string | null;
+  generated_pdf_path: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface BidPageCreateHtml {
+  page_name: string;
+  html_content: string;
+  css_content?: string | null;
+}
+
+export interface BidPageUpdate {
+  page_name?: string | null;
+  html_content?: string | null;
+  css_content?: string | null;
+}
+
+// ===== 입찰 인력 배정 관련 타입 =====
+
+export interface BidPersonnel {
+  id: number;
+  bid_id: number;
+  personnel_id: number;
+  personnel_name: string | null;
+  personnel_title: string | null;
+  role_in_bid: string | null;
+  sort_order: number | null;
+  custom_data: string | null;
+  selected_projects: string | null;
+  created_at: string | null;
+}
+
+export interface BidPersonnelCreate {
+  personnel_id: number;
+  role_in_bid?: string | null;
+  selected_projects?: number[] | null;
+  custom_data?: Record<string, string> | null;
 }
 
 // ===== 장표 라이브러리 관련 타입 =====

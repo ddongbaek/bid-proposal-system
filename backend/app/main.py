@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import create_tables
 from app.middleware.ip_filter import IPFilterMiddleware
-from app.routers import ai, hwp, library, personnel
+from app.routers import ai, bid, hwp, library, pdf, personnel
 import app.models  # noqa: F401 - register models with Base.metadata
 
 logger = logging.getLogger(__name__)
@@ -38,6 +38,8 @@ app.add_middleware(IPFilterMiddleware, dev_mode=settings.DEV_MODE)
 app.include_router(personnel.router, prefix="/api/personnel", tags=["personnel"])
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
+app.include_router(bid.router, prefix="/api/bids", tags=["bids"])
+app.include_router(pdf.router, prefix="/api/pdf", tags=["pdf"])
 app.include_router(hwp.router, prefix="/api/hwp", tags=["hwp"])
 
 
@@ -53,6 +55,14 @@ async def startup_event():
     logger.info("데이터베이스 테이블 생성 완료")
 
     logger.info("서버 시작 준비 완료")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    from app.services.pdf_service import cleanup
+
+    await cleanup()
+    logger.info("서버 종료 정리 완료")
 
 
 @app.get("/api/health")

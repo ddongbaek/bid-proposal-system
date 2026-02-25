@@ -30,11 +30,11 @@
 | Phase 0 | ✅ 완료 | 프로젝트 문서화 |
 | Phase 1 | ✅ 완료 | 기반 인프라 + 인력관리 |
 | Phase 1.5 | ✅ 완료 | 재직증명서 출력 기능 |
-| Phase 2 | ✅ 거의 완료 | AI 편집기 + HWP→HTML 변환 + 서식 선택기 + 편집기 연동 |
-| Phase 3 | 미착수 | 장표 조합기 + PDF 출력 |
+| Phase 2 | ✅ 완료 | AI 편집기 + HWP→HTML 변환 + 서식 선택기 + 편집기 연동 |
+| Phase 3 | ✅ 완료 | 입찰 CRUD + 장표 조합기(BidWorkspace) + PDF 서비스 |
 | Phase 4 | 미착수 | 마무리 (Docker 프로덕션, 설정, 백업) |
 
-**최신 인수인계 문서**: `docs/handover-phase2-hwp.md` (HWP 변환 + 편집기 연동, 세션4까지 반영)
+**최신 인수인계 문서**: `docs/handover-phase3.md` (전체 기능 구현 + 검증 완료, 세션7 반영)
 
 ---
 
@@ -44,7 +44,7 @@
 - **React 18** + TypeScript + Vite
 - **Tailwind CSS** + **lucide-react** (아이콘)
 - **Monaco Editor** (@monaco-editor/react, HTML/CSS 코드 편집기)
-- **@dnd-kit/core** (드래그앤드롭, Phase 3 예정)
+- **@dnd-kit/core + @dnd-kit/sortable** (드래그앤드롭, BidWorkspace 장표 순서 조정)
 - **React Router v6** (라우팅)
 - **Axios** (API 통신)
 
@@ -53,10 +53,10 @@
 - **SQLAlchemy 2.0** (ORM, DeclarativeBase 스타일)
 - **Pydantic v2** (데이터 검증, pydantic-settings)
 
-### AI (Phase 2 예정)
-- **Google Gemini API** (gemini-2.0-flash 또는 pro)
+### AI
+- **Google Gemini API** (gemini-2.5-flash, temperature 0.1~0.2)
   - PDF → HTML 변환
-  - 자연어로 HTML 수정 요청
+  - 자연어로 HTML 수정 요청 (diff 기반: 검색/치환 JSON)
 
 ### HWP 처리
 - **pyhwp (python-hwp5)** (HWP5 → HTML 변환, hwp5html CLI)
@@ -64,10 +64,10 @@
   - HTML + CSS 별도 생성 후 인라인 병합
   - 후처리: TableControl 구조 변환, .Normal text-align 제거, 폰트 정규화
 
-### PDF 처리 (Phase 3 예정)
-- **Playwright** (Chromium 기반 HTML→PDF 변환, 한글 완벽 지원)
+### PDF 처리
+- **Playwright** (Chromium headless, HTML→A4 PDF 변환, lazy init 브라우저 인스턴스)
 - **PyPDF2** (PDF 합치기/분리/페이지 조작)
-- **pdf2image** + **poppler** (PDF 페이지를 이미지 썸네일로 변환)
+- **pdf2image** + **poppler** (PDF 페이지를 이미지 썸네일로 변환, 미구현)
 
 ### 데이터베이스
 - **SQLite** (파일 기반, `data/db/bid_proposal.db`)
@@ -106,7 +106,7 @@ bid-proposal-system/
 │   ├── package.json              # react, axios, tailwindcss, lucide-react
 │   ├── vite.config.ts            # Tailwind 플러그인 + API 프록시
 │   └── src/
-│       ├── App.tsx               # 라우터 (7개 경로)
+│       ├── App.tsx               # 라우터 (9개 경로)
 │       ├── main.tsx              # 엔트리포인트
 │       ├── index.css             # Tailwind 글로벌 스타일
 │       ├── types/
@@ -127,7 +127,8 @@ bid-proposal-system/
 │           ├── PersonnelEdit.tsx # 인력 등록/편집 (3탭: 기본정보/자격증/프로젝트이력) + 재직증명서 버튼
 │           ├── PageEditor.tsx    # 장표 편집기 (3분할: AI채팅|코드|미리보기)
 │           ├── Library.tsx       # 장표 보관함 (카드 그리드, 카테고리 필터)
-│           ├── BidList.tsx       # 입찰 목록 (플레이스홀더)
+│           ├── BidList.tsx       # 입찰 목록 (검색/필터/생성 모달)
+│           ├── BidWorkspace.tsx  # 장표 조합기 (드래그앤드롭, 미리보기, 인력배정)
 │           ├── HwpConverter.tsx  # HWP→HTML 변환 테스트 페이지
 │           └── Settings.tsx      # 설정 (플레이스홀더)
 │
@@ -148,10 +149,12 @@ bid-proposal-system/
 │       │   └── bid.py            # 입찰/AI/장표라이브러리 스키마
 │       ├── services/
 │       │   ├── ai_service.py         # Gemini API 연동 (PDF→HTML, HTML diff 수정)
-│       │   └── libreoffice_service.py # HWP→HTML(pyhwp) + 서식 그룹핑/추출 + PDF 처리
+│       │   ├── libreoffice_service.py # HWP→HTML(pyhwp) + 서식 그룹핑/추출
+│       │   └── pdf_service.py        # Playwright HTML→PDF + PyPDF2 병합
 │       └── routers/
 │           ├── personnel.py      # 인력 CRUD 13개 엔드포인트
 │           ├── ai.py             # AI API (pdf-to-html, modify)
+│           ├── bid.py            # 입찰 CRUD 11개 엔드포인트 (장표/인력 포함)
 │           ├── library.py        # 장표 라이브러리 CRUD
 │           └── hwp.py            # HWP 변환 API (to-html, convert, info)
 │
@@ -209,6 +212,23 @@ bid-proposal-system/
 | GET | /api/library/{id} | 장표 상세 조회 (HTML/CSS 포함) |
 | DELETE | /api/library/{id} | 장표 삭제 |
 
+### Phase 3: 입찰 관리 + PDF (11개)
+
+| Method | 경로 | 기능 |
+|--------|------|------|
+| GET | /api/bids/ | 입찰 목록 (검색/필터/페이지네이션) |
+| POST | /api/bids/ | 입찰 생성 |
+| GET | /api/bids/{id} | 입찰 상세 (pages, personnel 포함) |
+| PUT | /api/bids/{id} | 입찰 수정 |
+| DELETE | /api/bids/{id} | 입찰 삭제 (cascade + 파일 정리) |
+| POST | /api/bids/{id}/pages/html | HTML 장표 추가 |
+| POST | /api/bids/{id}/pages/pdf | PDF 파일 업로드 |
+| PUT | /api/bids/{id}/pages/reorder | 장표 순서 변경 |
+| PUT | /api/bids/{id}/pages/{page_id} | 장표 수정 |
+| DELETE | /api/bids/{id}/pages/{page_id} | 장표 삭제 |
+| POST | /api/bids/{id}/personnel | 인력 배정 |
+| DELETE | /api/bids/{id}/personnel/{bp_id} | 인력 해제 |
+
 ---
 
 ## 코딩 컨벤션
@@ -246,7 +266,7 @@ bid-proposal-system/
 - 주민등록번호 DB 저장 (출력 시 뒷자리 마스킹)
 - 증명서 번호 localStorage 자동증가 (수동 변경 가능)
 - Pretendard 폰트(CDN), KOIS 로고 + 직인 이미지 base64 인라인
-### Phase 2: AI 편집기 + HWP 변환 (✅ 거의 완료)
+### Phase 2: AI 편집기 + HWP 변환 ✅
 - Gemini API 연동 (gemini-2.5-flash) - PDF→HTML 변환, 자연어 HTML 수정 (diff 기반)
 - 장표 편집기 (3분할: AI채팅 | Monaco코드에디터 | A4미리보기)
 - AI 채팅 패널 (자연어 수정 요청 + PDF/HWP 업로드 변환)
@@ -255,8 +275,15 @@ bid-proposal-system/
 - **HWP→HTML 변환** (pyhwp 기반) - 표/양식 구조 유지, 폰트 정규화, 정렬 보정
 - **서식 선택기** - `[ 서식 N ]` 패턴 기준 그룹핑, 체크박스 UI로 원하는 서식만 편집기로
 - HWP→편집기 연동 (sessionStorage, StrictMode 대응)
-- 남은 작업: Gemini AI 수정 실사용 테스트 (GEMINI_API_KEY 설정 필요)
-### Phase 3: 장표 조합기 + PDF 출력
+- 참고: Gemini AI 수정은 GEMINI_API_KEY 설정 후 실사용 테스트 필요
+### Phase 3: 장표 조합기 + PDF 출력 ✅
+- 입찰 CRUD API 11개 엔드포인트 (`backend/app/routers/bid.py`)
+- BidList 페이지 — 입찰 목록/검색/필터/생성 모달
+- BidWorkspace 페이지 — 드래그앤드롭 장표 순서 조정 (@dnd-kit), iframe 미리보기
+- 장표 추가 3가지: 라이브러리 불러오기, 새 장표(편집기), PDF 업로드
+- 인력 배정/해제 (인력 검색, 중복 방지)
+- PDF 서비스 (`backend/app/services/pdf_service.py`) — Playwright HTML→PDF + PyPDF2 병합
+- 참고: `playwright install chromium` 실행 후 PDF 생성 실 테스트 필요
 ### Phase 4: 마무리 (Docker 프로덕션, 설정, 백업)
 
 각 Phase의 상세 내용은 docs/sop.md 참조.
@@ -312,3 +339,8 @@ docker-compose up --build
 | 2026-02-25 | 서식 그룹핑: `[ 서식 N ]` 패턴 기준 | 개별 TableControl(25개)→서식 단위(14개)로 양식 깨짐 방지 |
 | 2026-02-25 | Gemini AI 수정을 diff 방식으로 변경 | 대용량 HTML(170KB+)에서 전체 재생성 불가 → 검색/치환 JSON |
 | 2026-02-25 | HWP→편집기 연동에 sessionStorage 사용 | 페이지 간 대용량 데이터 전달, StrictMode 대응 useRef 패턴 |
+| 2026-02-25 | @dnd-kit 드래그앤드롭 라이브러리 사용 | React 친화적, 접근성 지원, 경량 |
+| 2026-02-25 | Playwright lazy init 패턴 (pdf_service) | 서버 시작 시 부담 없이, 첫 요청 시 Chromium 초기화 |
+| 2026-02-25 | 입찰 삭제 시 cascade + 물리 파일 정리 | DB + 파일 시스템 일관성 유지 |
+| 2026-02-25 | API trailing slash 규칙 통일 (FastAPI) | list/create는 `/`, 개별 리소스는 `/{id}` |
+| 2026-02-25 | 멀티에이전트 팀 병렬 개발 (Phase 3) | backend-dev + frontend-dev + reviewer 역할 분리 |

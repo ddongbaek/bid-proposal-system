@@ -4,6 +4,7 @@ import Dashboard from './pages/Dashboard';
 import PersonnelList from './pages/PersonnelList';
 import PersonnelEdit from './pages/PersonnelEdit';
 import BidList from './pages/BidList';
+import BidWorkspace from './pages/BidWorkspace';
 import PageEditor from './pages/PageEditor';
 import Library from './pages/Library';
 import Settings from './pages/Settings';
@@ -19,6 +20,7 @@ export default function App() {
           <Route path="/personnel/new" element={<PersonnelEdit />} />
           <Route path="/personnel/:id/edit" element={<PersonnelEdit />} />
           <Route path="/bids" element={<BidList />} />
+          <Route path="/bids/:bidId/workspace" element={<BidWorkspace />} />
           <Route path="/editor" element={<PageEditor />} />
           <Route path="/bids/:bidId/pages/:pageId/edit" element={<PageEditor />} />
           <Route path="/library" element={<Library />} />

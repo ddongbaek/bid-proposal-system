@@ -1,8 +1,88 @@
-"""입찰 관련 Pydantic 스키마 (Phase 1 기본 정의, Phase 2에서 AI/Library 확장)"""
+"""입찰 관련 Pydantic 스키마 (Phase 1 기본 정의, Phase 2 AI/Library, Phase 3 장표/인력)"""
 
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
+
+
+# ─── 입찰 장표 (BidPage) 스키마 ───
+
+
+class BidPageCreate(BaseModel):
+    """HTML 장표 추가 요청"""
+
+    page_name: str | None = None
+    html_content: str
+    css_content: str | None = None
+
+
+class BidPageUpdate(BaseModel):
+    """장표 수정 요청"""
+
+    page_name: str | None = None
+    html_content: str | None = None
+    css_content: str | None = None
+    pdf_page_start: int | None = None
+    pdf_page_end: int | None = None
+
+
+class BidPageResponse(BaseModel):
+    """장표 응답"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    bid_id: int
+    page_type: str
+    page_name: str | None = None
+    sort_order: int
+    html_content: str | None = None
+    css_content: str | None = None
+    pdf_file_path: str | None = None
+    pdf_page_start: int | None = None
+    pdf_page_end: int | None = None
+    thumbnail_path: str | None = None
+    generated_pdf_path: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class BidPageReorderRequest(BaseModel):
+    """장표 순서 일괄 변경 요청 — page_ids 배열 순서가 곧 sort_order"""
+
+    page_ids: list[int]
+
+
+# ─── 입찰 배정 인력 (BidPersonnel) 스키마 ───
+
+
+class BidPersonnelCreate(BaseModel):
+    """인력 배정 요청"""
+
+    personnel_id: int
+    role_in_bid: str | None = None
+    sort_order: int | None = None
+    custom_data: str | None = None  # JSON 문자열
+    selected_projects: str | None = None  # JSON 문자열
+
+
+class BidPersonnelResponse(BaseModel):
+    """인력 배정 응답"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    bid_id: int
+    personnel_id: int
+    role_in_bid: str | None = None
+    sort_order: int | None = None
+    custom_data: str | None = None
+    selected_projects: str | None = None
+    created_at: datetime | None = None
+    # 인력 기본 정보 (조인)
+    personnel_name: str | None = None
+    personnel_title: str | None = None
+    personnel_department: str | None = None
 
 
 # ─── 입찰 스키마 ───
@@ -46,7 +126,7 @@ class BidSummary(BaseModel):
 
 
 class BidDetail(BaseModel):
-    """입찰 상세 조회 응답"""
+    """입찰 상세 조회 응답 (pages, personnel 포함)"""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -58,6 +138,8 @@ class BidDetail(BaseModel):
     status: str = "draft"
     notice_file_path: str | None = None
     requirements_text: str | None = None
+    pages: list[BidPageResponse] = []
+    personnel: list[BidPersonnelResponse] = []
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

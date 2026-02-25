@@ -5,7 +5,7 @@ import AiChatPanel from '../components/editor/AiChatPanel';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
 import PreviewPanel from '../components/editor/PreviewPanel';
 import Modal from '../components/common/Modal';
-import { aiApi, libraryApi, hwpApi } from '../services/api';
+import { aiApi, libraryApi, hwpApi, bidApi } from '../services/api';
 import type { AiChatMessage, PageLibraryCreate } from '../types';
 
 // 기본 HTML 템플릿
@@ -90,9 +90,13 @@ export default function PageEditor() {
   // 저장 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingBid, setIsSavingBid] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveCategory, setSaveCategory] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
+
+  // 입찰 편집 모드 여부
+  const isBidEdit = Boolean(bidId && pageId);
 
   // 로딩 상태
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(false);
@@ -112,12 +116,40 @@ export default function PageEditor() {
     }
   }
 
+  // 입찰 장표 로드
+  const loadBidPage = async (bId: string, pId: string) => {
+    setIsLoadingLibrary(true);
+    try {
+      const page = await bidApi.getPage(Number(bId), Number(pId));
+      setHtmlContent(page.html_content || '');
+      setCssContent(page.css_content || '');
+      setPreviewHtml(page.html_content || '');
+      setPreviewCss(page.css_content || '');
+      setSaveName(page.page_name || '');
+    } catch {
+      // sessionStorage fallback (BidWorkspace에서 넘어온 경우)
+      const hwpData = hwpDataRef.current;
+      if (hwpData) {
+        setHtmlContent(hwpData.html);
+        setCssContent('');
+        setPreviewHtml(hwpData.html);
+        setPreviewCss('');
+        setSaveName(hwpData.fileName.replace(/\.hwp$/i, ''));
+      }
+    } finally {
+      setIsLoadingLibrary(false);
+    }
+  };
+
   // 초기 데이터 로드
   useEffect(() => {
-    if (libraryId) {
+    if (bidId && pageId) {
+      // 입찰 내 장표 편집
+      loadBidPage(bidId, pageId);
+    } else if (libraryId) {
       // 라이브러리에서 장표 불러오기
       loadFromLibrary(parseInt(libraryId));
-    } else if (!bidId) {
+    } else {
       const hwpData = hwpDataRef.current;
       if (hwpData) {
         setHtmlContent(hwpData.html);
@@ -138,8 +170,7 @@ export default function PageEditor() {
         setPreviewCss('');
       }
     }
-    // bidId가 있을 경우 (입찰 내 편집)는 Phase 3에서 구현
-  }, [libraryId, bidId]);
+  }, [libraryId, bidId, pageId]);
 
   const loadFromLibrary = async (id: number) => {
     setIsLoadingLibrary(true);
@@ -311,6 +342,24 @@ export default function PageEditor() {
     }
   };
 
+  // 입찰 장표 저장 (bidId+pageId가 있을 때)
+  const handleSaveToBid = async () => {
+    if (!bidId || !pageId) return;
+    setIsSavingBid(true);
+    try {
+      await bidApi.updatePage(Number(bidId), Number(pageId), {
+        html_content: htmlContent,
+        css_content: cssContent || null,
+        page_name: saveName || null,
+      });
+      navigate(`/bids/${bidId}/workspace`);
+    } catch {
+      alert('장표 저장에 실패했습니다.');
+    } finally {
+      setIsSavingBid(false);
+    }
+  };
+
   // 장표 라이브러리에 저장
   const handleSaveToLibrary = async () => {
     if (!saveName.trim()) {
@@ -380,6 +429,16 @@ export default function PageEditor() {
           </h2>
         </div>
         <div className="flex items-center gap-2">
+          {isBidEdit && (
+            <button
+              onClick={handleSaveToBid}
+              disabled={isSavingBid}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
+            >
+              {isSavingBid ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              저장
+            </button>
+          )}
           <button
             onClick={() => setShowSaveModal(true)}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"

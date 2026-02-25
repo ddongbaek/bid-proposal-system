@@ -12,6 +12,17 @@ import type {
   PageLibrarySummary,
   PageLibraryItem,
   PageLibraryCreate,
+  Bid,
+  BidCreate,
+  BidUpdate,
+  BidDetail,
+  BidListResponse,
+  BidPage,
+  BidPageCreateHtml,
+  BidPageUpdate,
+  BidPersonnel,
+  BidPersonnelCreate,
+  BidStatus,
 } from '../types';
 
 // Axios 인스턴스 생성
@@ -187,6 +198,126 @@ export const libraryApi = {
   /** 라이브러리 항목 삭제 */
   delete: async (id: number): Promise<void> => {
     await api.delete(`/library/${id}`);
+  },
+};
+
+// ===== 입찰 관리 API =====
+
+export const bidApi = {
+  /** 입찰 목록 조회 */
+  list: async (params?: {
+    status?: BidStatus;
+    search?: string;
+    page?: number;
+    size?: number;
+  }): Promise<BidListResponse> => {
+    const response = await api.get('/bids/', { params });
+    return response.data;
+  },
+
+  /** 입찰 상세 조회 */
+  getById: async (id: number): Promise<BidDetail> => {
+    const response = await api.get(`/bids/${id}`);
+    return response.data;
+  },
+
+  /** 입찰 생성 */
+  create: async (data: BidCreate): Promise<Bid> => {
+    const response = await api.post('/bids/', data);
+    return response.data;
+  },
+
+  /** 입찰 수정 */
+  update: async (id: number, data: BidUpdate): Promise<Bid> => {
+    const response = await api.put(`/bids/${id}`, data);
+    return response.data;
+  },
+
+  /** 입찰 삭제 */
+  delete: async (id: number): Promise<void> => {
+    await api.delete(`/bids/${id}`);
+  },
+
+  // --- 장표 관리 ---
+
+  /** HTML 장표 추가 */
+  addPageHtml: async (bidId: number, data: BidPageCreateHtml): Promise<BidPage> => {
+    const response = await api.post(`/bids/${bidId}/pages/html`, data);
+    return response.data;
+  },
+
+  /** PDF 장표 업로드 */
+  addPagePdf: async (bidId: number, file: File, pageName?: string): Promise<BidPage> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (pageName) formData.append('page_name', pageName);
+    const response = await api.post(`/bids/${bidId}/pages/pdf`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  /** 장표 상세 조회 */
+  getPage: async (bidId: number, pageId: number): Promise<BidPage> => {
+    const response = await api.get(`/bids/${bidId}/pages/${pageId}`);
+    return response.data;
+  },
+
+  /** 장표 수정 */
+  updatePage: async (bidId: number, pageId: number, data: BidPageUpdate): Promise<BidPage> => {
+    const response = await api.put(`/bids/${bidId}/pages/${pageId}`, data);
+    return response.data;
+  },
+
+  /** 장표 삭제 */
+  deletePage: async (bidId: number, pageId: number): Promise<void> => {
+    await api.delete(`/bids/${bidId}/pages/${pageId}`);
+  },
+
+  /** 장표 순서 변경 */
+  reorderPages: async (bidId: number, pageIds: number[]): Promise<void> => {
+    await api.put(`/bids/${bidId}/pages/reorder`, { page_ids: pageIds });
+  },
+
+  // --- 인력 배정 ---
+
+  /** 인력 배정 */
+  addPersonnel: async (bidId: number, data: BidPersonnelCreate): Promise<BidPersonnel> => {
+    const response = await api.post(`/bids/${bidId}/personnel`, data);
+    return response.data;
+  },
+
+  /** 인력 배정 해제 */
+  removePersonnel: async (bidId: number, assignmentId: number): Promise<void> => {
+    await api.delete(`/bids/${bidId}/personnel/${assignmentId}`);
+  },
+};
+
+// ===== PDF 생성/병합 API =====
+
+export const pdfApi = {
+  /** 개별 장표 PDF 생성 (HTML->PDF) */
+  generate: async (pageId: number): Promise<{ pdf_url: string; page_count: number; message: string }> => {
+    const response = await api.post(`/pdf/generate/${pageId}`);
+    return response.data;
+  },
+
+  /** 최종 PDF 병합 */
+  merge: async (bidId: number): Promise<{ pdf_url: string; total_pages: number; message: string }> => {
+    const response = await api.post(`/pdf/merge/${bidId}`);
+    return response.data;
+  },
+
+  /** PDF 다운로드 URL */
+  getDownloadUrl: (bidId: number): string => {
+    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    return `${baseURL}/pdf/download/${bidId}`;
+  },
+
+  /** PDF 미리보기 URL */
+  getPreviewUrl: (bidId: number): string => {
+    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    return `${baseURL}/pdf/preview/${bidId}`;
   },
 };
 

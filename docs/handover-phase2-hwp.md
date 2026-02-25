@@ -138,21 +138,16 @@ useEffect(() => {
 
 ---
 
-## 6. 다음 세션에서 이어갈 작업
+## 6. 후속 작업 상태
 
 ### Phase 2 남은 확인 작업
 1. [x] HWP→편집기 연동 (sessionStorage) — **구현 완료, 사용자 확인 완료**
 2. [x] 서식 선택기 (그룹핑) — **구현 완료, 사용자 확인 완료**
 3. [x] 장표 라이브러리 CRUD — **동작 확인 완료**
 4. [ ] **Gemini AI 수정 실제 테스트** — `.env`에 `GEMINI_API_KEY` 설정 후 편집기에서 실사용 확인
-   - diff 기반 수정이 실제 대용량 HWP HTML에서 잘 동작하는지
-   - 편집기 AI 채팅 → 수정 요청 → 미리보기 반영 플로우
 
-### Phase 3 착수 (장표 조합기 + PDF 출력)
-- 입찰 CRUD API + 모델
-- BidWorkspace 페이지 (드래그앤드롭 장표 순서 조정)
-- Playwright HTML→PDF 변환
-- PyPDF2 PDF 병합 (HTML 장표 + 증빙 PDF 원본)
+### Phase 3 — ✅ 완료 (세션 5에서 구현)
+- → `docs/handover-phase3.md` 참조
 
 ---
 
