@@ -185,6 +185,8 @@ export interface BidPageUpdate {
   page_name?: string | null;
   html_content?: string | null;
   css_content?: string | null;
+  pdf_page_start?: number | null;
+  pdf_page_end?: number | null;
 }
 
 // ===== 입찰 인력 배정 관련 타입 =====
@@ -195,18 +197,20 @@ export interface BidPersonnel {
   personnel_id: number;
   personnel_name: string | null;
   personnel_title: string | null;
+  personnel_department: string | null;
   role_in_bid: string | null;
   sort_order: number | null;
-  custom_data: string | null;
-  selected_projects: string | null;
+  custom_data: string | null;           // JSON 문자열
+  selected_projects: string | null;     // JSON 문자열
   created_at: string | null;
 }
 
 export interface BidPersonnelCreate {
   personnel_id: number;
   role_in_bid?: string | null;
-  selected_projects?: number[] | null;
-  custom_data?: Record<string, string> | null;
+  sort_order?: number | null;
+  custom_data?: string | null;          // JSON 문자열
+  selected_projects?: string | null;    // JSON 문자열 (예: "[1,3,5]")
 }
 
 // ===== 장표 라이브러리 관련 타입 =====

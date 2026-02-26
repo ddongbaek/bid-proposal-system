@@ -12,7 +12,6 @@ import type {
   PageLibrarySummary,
   PageLibraryItem,
   PageLibraryCreate,
-  Bid,
   BidCreate,
   BidUpdate,
   BidDetail,
@@ -222,13 +221,13 @@ export const bidApi = {
   },
 
   /** 입찰 생성 */
-  create: async (data: BidCreate): Promise<Bid> => {
+  create: async (data: BidCreate): Promise<BidDetail> => {
     const response = await api.post('/bids/', data);
     return response.data;
   },
 
   /** 입찰 수정 */
-  update: async (id: number, data: BidUpdate): Promise<Bid> => {
+  update: async (id: number, data: BidUpdate): Promise<BidDetail> => {
     const response = await api.put(`/bids/${id}`, data);
     return response.data;
   },
@@ -296,28 +295,28 @@ export const bidApi = {
 // ===== PDF 생성/병합 API =====
 
 export const pdfApi = {
-  /** 개별 장표 PDF 생성 (HTML->PDF) */
-  generate: async (pageId: number): Promise<{ pdf_url: string; page_count: number; message: string }> => {
-    const response = await api.post(`/pdf/generate/${pageId}`);
+  /** 개별 장표 PDF 생성 (HTML→PDF, PDF 바이트 반환) */
+  generate: async (pageId: number): Promise<Blob> => {
+    const response = await api.post(`/pdf/generate/${pageId}`, null, {
+      responseType: 'blob',
+      timeout: 120000,
+    });
     return response.data;
   },
 
-  /** 최종 PDF 병합 */
-  merge: async (bidId: number): Promise<{ pdf_url: string; total_pages: number; message: string }> => {
-    const response = await api.post(`/pdf/merge/${bidId}`);
+  /** 최종 PDF 병합 (모든 장표 변환+병합, PDF 바이트 반환) */
+  merge: async (bidId: number): Promise<Blob> => {
+    const response = await api.post(`/pdf/merge/${bidId}`, null, {
+      responseType: 'blob',
+      timeout: 120000,
+    });
     return response.data;
   },
 
-  /** PDF 다운로드 URL */
+  /** PDF 다운로드 URL (이미 생성된 파일 또는 즉시 생성) */
   getDownloadUrl: (bidId: number): string => {
     const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
     return `${baseURL}/pdf/download/${bidId}`;
-  },
-
-  /** PDF 미리보기 URL */
-  getPreviewUrl: (bidId: number): string => {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-    return `${baseURL}/pdf/preview/${bidId}`;
   },
 };
 

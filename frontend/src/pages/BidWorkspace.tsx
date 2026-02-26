@@ -31,7 +31,7 @@ import {
   Eye,
   ArrowLeft,
 } from 'lucide-react';
-import { bidApi, libraryApi, personnelApi } from '../services/api';
+import { bidApi, libraryApi, personnelApi, pdfApi } from '../services/api';
 import type {
   BidDetail,
   BidPage,
@@ -265,14 +265,7 @@ export default function BidWorkspace() {
   const handleGeneratePdf = async () => {
     setGenerating(true);
     try {
-      // merge API가 PDF binary를 직접 반환하므로 blob으로 다운로드
-      const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-      const response = await fetch(`${baseURL}/pdf/merge/${numericBidId}`, { method: 'POST' });
-      if (!response.ok) {
-        const errText = await response.text();
-        throw new Error(errText);
-      }
-      const blob = await response.blob();
+      const blob = await pdfApi.merge(numericBidId);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
