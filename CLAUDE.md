@@ -419,6 +419,21 @@ rm -rf frontend/node_modules/.vite
 cd frontend && npm run dev
 ```
 
+### 6. Docker 빌드 시 Python 3.11 f-string 백슬래시 에러
+- **증상**: `SyntaxError: f-string expression part cannot include a backslash`
+- **원인**: Python 3.11은 f-string `{}` 표현식 안에 `\n` 등 백슬래시 사용 금지 (3.12부터 허용)
+- **해결**: `\n`이 포함된 문자열을 f-string 바깥에서 변수로 먼저 만들고, f-string에서는 변수만 참조
+- **파일**: `backend/app/services/ai_service.py` (css_section 변수 분리)
+- **주의**: 로컬 Windows에서는 Python 3.12+라 문제 없지만, Dockerfile이 Python 3.11-slim 사용
+
+### 7. Docker 빌드 캐시가 코드 변경을 반영 안 할 때
+```bash
+docker-compose build --no-cache backend
+docker-compose up -d
+```
+- **원인**: `COPY app/ ./app/` 레이어가 캐시되어 수정된 파일이 반영 안 됨
+- **주의**: `--no-cache`는 전체 재빌드 (apt-get + pip + playwright 포함, ~5분 소요)
+
 ---
 
 ## 주요 결정사항 (변경 이력)
