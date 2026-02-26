@@ -1,5 +1,49 @@
 # 정량제안서 작성 시스템 (Bid Proposal Builder)
 
+## 새 세션 가이드 (이 섹션부터 읽으세요)
+
+**상태**: 전 Phase(0~4) 구현 완료. 사용자가 직접 사용하며 버그 수정/개선 중.
+
+### 이 파일(CLAUDE.md)만으로 프로젝트 전체 파악 가능
+- 프로젝트 개요, 기술 스택, 파일 구조, API 목록, 데이터 흐름, 디버깅 가이드 모두 포함
+
+### 버그/개선 작업 시 읽을 파일 순서
+1. **사용자 보고** → 어떤 화면/기능에서 문제인지 파악
+2. **아래 "파일 위치 매핑"** → 해당 프론트/백엔드 파일 특정
+3. 해당 파일을 Read로 열어서 코드 확인 → 수정
+
+### 파일 위치 매핑 (기능 → 코드)
+
+| 기능 | 프론트엔드 | 백엔드 |
+|------|-----------|--------|
+| API 호출 중앙 | `frontend/src/services/api.ts` | — |
+| 타입 정의 | `frontend/src/types/index.ts` | `backend/app/schemas/bid.py`, `schemas/personnel.py` |
+| 라우팅 | `frontend/src/App.tsx` | `backend/app/main.py` |
+| 입찰 목록 | `pages/BidList.tsx` | `routers/bid.py` |
+| 장표 조합기 | `pages/BidWorkspace.tsx` | `routers/bid.py` |
+| 장표 편집기 | `pages/PageEditor.tsx` | `routers/ai.py`, `services/ai_service.py` |
+| 인력 관리 | `pages/PersonnelList.tsx`, `PersonnelEdit.tsx` | `routers/personnel.py` |
+| 인력 자동채움 | `pages/BidWorkspace.tsx` | `services/fill_service.py`, `routers/bid.py` |
+| HWP 변환 | `pages/HwpConverter.tsx` | `routers/hwp.py`, `services/libreoffice_service.py` |
+| PDF 생성 | `pages/BidWorkspace.tsx` | `routers/pdf.py`, `services/pdf_service.py` |
+| 재직증명서 | `components/certificate/` | — (프론트 전용) |
+| DB 모델 | — | `models/bid.py`, `models/personnel.py` |
+| 공통 컴포넌트 | `components/common/` (Modal, Pagination 등) | — |
+| 레이아웃/사이드바 | `components/layout/` | — |
+
+### 상세 문서 (필요할 때만)
+- `docs/handover-phase3.md` — 장표 조합기 + PDF + 자동채움 상세 구현
+- `docs/handover-phase2-hwp.md` — HWP→HTML 변환 파이프라인 상세
+- `docs/handover-phase1.md` — 인력관리 DB/API 상세
+
+### 실행
+```
+start.bat        ← 더블클릭 (백엔드 8000 + 프론트 5173 + 브라우저)
+stop.bat         ← 종료
+```
+
+---
+
 ## 프로젝트 개요
 
 공공사업 입찰 시 제출하는 **정량제안서(정량서류)**를 효율적으로 작성하는 내부용 웹 시스템.
