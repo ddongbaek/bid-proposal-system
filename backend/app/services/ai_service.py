@@ -215,6 +215,10 @@ async def modify_html(
     """
     model = _get_gemini_model()
 
+    css_section = ""
+    if css_content:
+        css_section = f"## 현재 CSS\n```css\n{css_content}\n```"
+
     prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
 
 ## 현재 HTML (일부 생략 가능)
@@ -222,7 +226,7 @@ async def modify_html(
 {html_content}
 ```
 
-{f"## 현재 CSS\n```css\n{css_content}\n```" if css_content else ""}
+{css_section}
 
 ## 수정 요청
 {request}
