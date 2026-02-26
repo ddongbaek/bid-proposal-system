@@ -89,6 +89,9 @@
 ```
 bid-proposal-system/
 ├── CLAUDE.md                     # 이 파일 (프로젝트 가이드)
+├── start.bat                     # 시작 스크립트 (백엔드+프론트 동시 실행)
+├── stop.bat                      # 종료 스크립트 (포트 8000/5173 프로세스 종료)
+├── setup.bat                     # 최초 설치 스크립트 (pip+npm+playwright)
 ├── docker-compose.yml            # backend(8000) + frontend(80)
 ├── .env                          # GEMINI_API_KEY, DB 경로 등
 ├── .env.example                  # 환경변수 템플릿 (시크릿 미포함)
@@ -371,20 +374,19 @@ Phase별 인수인계는 docs/handover-phase*.md 참조.
 
 ## 실행 방법
 
-### 최초 설치 (1회)
-```bash
-# 백엔드
-cd backend
-pip install -r requirements.txt
-playwright install chromium          # PDF 생성용 (~100MB)
-
-# 프론트엔드
-cd frontend
-npm install
+### 간편 실행 (Windows .bat)
+```
+setup.bat        ← 최초 1회: pip + npm + playwright 설치
+start.bat        ← 시작: 백엔드 + 프론트 동시 실행 + 브라우저 열기
+stop.bat         ← 종료: 포트 8000/5173 프로세스 종료
 ```
 
-### 로컬 개발 (백엔드 + 프론트엔드)
+### 수동 실행 (터미널 2개)
 ```bash
+# 최초 설치 (1회)
+cd backend && pip install -r requirements.txt && playwright install chromium
+cd frontend && npm install
+
 # 터미널 1: 백엔드
 cd backend && uvicorn app.main:app --reload --port 8000
 
