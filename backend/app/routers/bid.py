@@ -292,6 +292,20 @@ async def reorder_pages(
     return [BidPageResponse.model_validate(p) for p in pages]
 
 
+@router.get("/{bid_id}/pages/{page_id}", response_model=BidPageResponse)
+async def get_page(bid_id: int, page_id: int, db: Session = Depends(get_db)):
+    """개별 장표 조회"""
+    _get_bid_or_404(db, bid_id)
+    page = (
+        db.query(BidPage)
+        .filter(BidPage.bid_id == bid_id, BidPage.id == page_id)
+        .first()
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="장표를 찾을 수 없습니다.")
+    return BidPageResponse.model_validate(page)
+
+
 @router.put("/{bid_id}/pages/{page_id}", response_model=BidPageResponse)
 async def update_page(
     bid_id: int, page_id: int, data: BidPageUpdate, db: Session = Depends(get_db)
