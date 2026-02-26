@@ -152,12 +152,13 @@ bid-proposal-system/
 │       │   └── bid.py            # 입찰/AI/장표라이브러리 스키마
 │       ├── services/
 │       │   ├── ai_service.py         # Gemini API 연동 (PDF→HTML, HTML diff 수정)
+│       │   ├── fill_service.py       # 인력 자동 채움 ({{placeholder}} → DB 데이터 치환)
 │       │   ├── libreoffice_service.py # HWP→HTML(pyhwp) + 서식 그룹핑/추출
 │       │   └── pdf_service.py        # Playwright HTML→PDF + PyPDF2 병합
 │       └── routers/
 │           ├── personnel.py      # 인력 CRUD 13개 엔드포인트
 │           ├── ai.py             # AI API (pdf-to-html, modify)
-│           ├── bid.py            # 입찰 CRUD 13개 엔드포인트 (장표/인력 포함)
+│           ├── bid.py            # 입찰 CRUD 14개 엔드포인트 (장표/인력/자동채움 포함)
 │           ├── pdf.py            # PDF 생성/병합/다운로드 3개 엔드포인트
 │           ├── library.py        # 장표 라이브러리 CRUD
 │           └── hwp.py            # HWP 변환 API (to-html, convert, info)
@@ -220,7 +221,7 @@ bid-proposal-system/
 | GET | /api/library/{id} | 장표 상세 조회 (HTML/CSS 포함) |
 | DELETE | /api/library/{id} | 장표 삭제 |
 
-### Phase 3: 입찰 관리 + PDF (16개)
+### Phase 3: 입찰 관리 + PDF + 자동채움 (17개)
 
 | Method | 경로 | 기능 |
 |--------|------|------|
@@ -235,6 +236,7 @@ bid-proposal-system/
 | GET | /api/bids/{id}/pages/{page_id} | 개별 장표 조회 |
 | PUT | /api/bids/{id}/pages/{page_id} | 장표 수정 |
 | DELETE | /api/bids/{id}/pages/{page_id} | 장표 삭제 |
+| POST | /api/bids/{id}/pages/{page_id}/fill | 인력 자동 채움 (placeholder→DB데이터) |
 | POST | /api/bids/{id}/personnel | 인력 배정 |
 | DELETE | /api/bids/{id}/personnel/{bp_id} | 인력 해제 |
 | POST | /api/pdf/generate/{page_id} | 개별 장표 HTML→PDF 변환 |
@@ -306,6 +308,19 @@ BidWorkspace.tsx → 연필 아이콘 클릭 → navigate(/bids/:id/pages/:pageI
 → navigate(-1) → BidWorkspace로 복귀
 ```
 
+### 흐름 4: 인력 자동 채움 (Workspace 내 인라인)
+```
+BidWorkspace.tsx → 장표 선택 → 인력 드롭다운에서 인력 선택 → "채우기" 클릭
+→ POST /api/bids/:id/pages/:pageId/fill { personnel_id, save: false }
+→ fill_service.py: HTML 내 {{name}}, {{title}} 등 placeholder → DB 데이터 치환
+  ├── 단순 필드: {{name}} → "김철수", {{department}} → "기술팀"
+  ├── 번호 배열: {{cert_1_name}} → 첫번째 자격증명
+  └── TR 행 복제: <tr>에 {{cert_name}} 포함 → 자격증 수만큼 행 복제
+→ 프론트: filledHtml 상태 → iframe srcDoc에 미리보기
+→ "저장" 클릭 시 save: true → bid_pages.html_content 업데이트
+→ "원본" 클릭 시 filledHtml 초기화 (DB는 변경 안 됨)
+```
+
 ---
 
 ## 구현 순서
@@ -327,12 +342,16 @@ BidWorkspace.tsx → 연필 아이콘 클릭 → navigate(/bids/:id/pages/:pageI
 - **서식 선택기** - `[ 서식 N ]` 패턴 기준 그룹핑, 체크박스 UI로 원하는 서식만 편집기로
 - HWP→편집기 연동 (sessionStorage, StrictMode 대응)
 - 참고: Gemini AI 수정은 GEMINI_API_KEY 설정 후 실사용 테스트 필요
-### Phase 3: 장표 조합기 + PDF 출력 ✅
-- 입찰 CRUD API 13개 엔드포인트 (`backend/app/routers/bid.py`)
+### Phase 3: 장표 조합기 + PDF 출력 + 자동채움 ✅
+- 입찰 CRUD API 14개 엔드포인트 (`backend/app/routers/bid.py`)
 - BidList 페이지 — 입찰 목록/검색/필터/생성 모달
 - BidWorkspace 페이지 — 드래그앤드롭 장표 순서 조정 (@dnd-kit), iframe 미리보기
 - 장표 추가 3가지: 라이브러리 불러오기, 새 장표(편집기), PDF 업로드
 - 인력 배정/해제 (인력 검색, 중복 방지)
+- **인력 자동 채움** (`backend/app/services/fill_service.py`) — `{{placeholder}}` → 인력DB 데이터 치환
+  - 단순 필드 13개 (name, title, department, phone 등) + role_in_bid
+  - 배열 필드: 자격증/프로젝트이력 (번호 패턴 `{{cert_1_name}}` + TR 행 복제)
+  - BidWorkspace 내 인력 드롭다운 → 미리보기/저장/원본복원 UI
 - PDF 서비스 (`backend/app/services/pdf_service.py`) — Playwright HTML→PDF + PyPDF2 병합
 - PDF 라우터 (`backend/app/routers/pdf.py`) — 생성/병합/다운로드 엔드포인트
 - Playwright chromium 설치 + PDF 생성 E2E 검증 완료
@@ -471,3 +490,6 @@ docker-compose up -d
 | 2026-02-25 | pdfApi를 responseType: blob으로 반환 | 백엔드가 PDF 바이너리를 직접 반환, JSON 래핑 불필요 |
 | 2026-02-26 | Playwright Chromium을 Backend Dockerfile에 포함 | 프로덕션 Docker에서 PDF 생성 지원 |
 | 2026-02-26 | .env.example 템플릿 제공 | 시크릿 없이 환경변수 구조 공유 |
+| 2026-02-26 | 인력 자동 채움을 fill_service.py로 분리 | 단일 책임 원칙, bid 라우터에서 서비스 호출만 |
+| 2026-02-26 | placeholder 패턴: `{{변수명}}` (영문 snake_case) | AI PDF→HTML 변환 시 동일 패턴 사용, 일관성 |
+| 2026-02-26 | 자동 채움 미리보기/저장 2단계 | 실수로 원본 덮어쓰기 방지, save=false로 먼저 확인 |
