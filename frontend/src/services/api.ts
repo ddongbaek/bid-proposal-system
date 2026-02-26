@@ -290,6 +290,19 @@ export const bidApi = {
   removePersonnel: async (bidId: number, assignmentId: number): Promise<void> => {
     await api.delete(`/bids/${bidId}/personnel/${assignmentId}`);
   },
+
+  /** 장표에 인력 데이터 자동 채움 */
+  fillPersonnel: async (bidId: number, pageId: number, personnelId: number, save: boolean = false): Promise<{
+    html_content: string;
+    filled_count: number;
+    remaining: string[];
+  }> => {
+    const response = await api.post(`/bids/${bidId}/pages/${pageId}/fill`, {
+      personnel_id: personnelId,
+      save,
+    });
+    return response.data;
+  },
 };
 
 // ===== PDF 생성/병합 API =====

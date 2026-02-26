@@ -25,7 +25,10 @@ from app.schemas.bid import (
     BidPersonnelResponse,
     BidSummary,
     BidUpdate,
+    FillRequest,
+    FillResponse,
 )
+from app.services.fill_service import fill_personnel, get_selected_project_ids
 
 logger = logging.getLogger(__name__)
 
@@ -353,6 +356,81 @@ async def delete_page(bid_id: int, page_id: int, db: Session = Depends(get_db)):
     db.commit()
     logger.info("장표 삭제: bid_id=%d, page_id=%d", bid_id, page_id)
     return None
+
+
+# ──────────────────────────────────────────────
+# 인력 자동 채움 (Fill Personnel Data)
+# ──────────────────────────────────────────────
+
+
+@router.post("/{bid_id}/pages/{page_id}/fill", response_model=FillResponse)
+async def fill_page_personnel(
+    bid_id: int,
+    page_id: int,
+    data: FillRequest,
+    db: Session = Depends(get_db),
+):
+    """장표에 인력 데이터 자동 채움 — HTML {{placeholder}} 를 인력 DB 데이터로 치환"""
+    _get_bid_or_404(db, bid_id)
+
+    # 장표 조회
+    page = (
+        db.query(BidPage)
+        .filter(BidPage.id == page_id, BidPage.bid_id == bid_id)
+        .first()
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="장표를 찾을 수 없습니다.")
+
+    if page.page_type != "html":
+        raise HTTPException(status_code=400, detail="HTML 장표만 자동 채움이 가능합니다.")
+
+    if not page.html_content:
+        raise HTTPException(status_code=400, detail="장표에 HTML 내용이 없습니다.")
+
+    # 인력 조회 (자격증, 프로젝트 이력 포함 — selectin lazy loading)
+    person = db.query(Personnel).filter(Personnel.id == data.personnel_id).first()
+    if not person:
+        raise HTTPException(status_code=404, detail="인력을 찾을 수 없습니다.")
+
+    # 해당 입찰에 배정된 인력인지 확인 (배정 정보가 있으면 role_in_bid 등 활용)
+    bp = (
+        db.query(BidPersonnel)
+        .filter(
+            BidPersonnel.bid_id == bid_id,
+            BidPersonnel.personnel_id == data.personnel_id,
+        )
+        .first()
+    )
+
+    # selected_projects 파싱
+    selected_project_ids = get_selected_project_ids(bp)
+
+    # 자동 채움 실행
+    result = fill_personnel(
+        html_content=page.html_content,
+        personnel=person,
+        bid_personnel=bp,
+        selected_project_ids=selected_project_ids,
+    )
+
+    # save=true 이면 채움 결과를 DB에 저장
+    if data.save:
+        page.html_content = result["html_content"]
+        db.commit()
+        db.refresh(page)
+        logger.info(
+            "자동 채움 결과 저장: bid_id=%d, page_id=%d, personnel_id=%d",
+            bid_id,
+            page_id,
+            data.personnel_id,
+        )
+
+    return FillResponse(
+        html_content=result["html_content"],
+        filled_count=result["filled_count"],
+        remaining=result["remaining"],
+    )
 
 
 # ──────────────────────────────────────────────

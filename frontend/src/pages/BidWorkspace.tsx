@@ -30,6 +30,7 @@ import {
   Users,
   Eye,
   ArrowLeft,
+  UserCheck,
 } from 'lucide-react';
 import { bidApi, libraryApi, personnelApi, pdfApi } from '../services/api';
 import type {
@@ -142,6 +143,12 @@ export default function BidWorkspace() {
   // PDF 업로드
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfPageName, setPdfPageName] = useState('');
+
+  // 자동 채움
+  const [filledHtml, setFilledHtml] = useState<string | null>(null);
+  const [fillPersonnelId, setFillPersonnelId] = useState<number | null>(null);
+  const [filling, setFilling] = useState(false);
+  const [fillStats, setFillStats] = useState<{ filled: number; remaining: string[] } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -279,6 +286,40 @@ export default function BidWorkspace() {
     }
   };
 
+  // 인력 자동 채움
+  const handleFillPersonnel = async () => {
+    if (!selectedPage || !fillPersonnelId || !numericBidId) return;
+    setFilling(true);
+    try {
+      const result = await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId);
+      setFilledHtml(result.html_content);
+      setFillStats({ filled: result.filled_count, remaining: result.remaining });
+    } catch {
+      alert('자동 채움에 실패했습니다.');
+    } finally {
+      setFilling(false);
+    }
+  };
+
+  // 자동 채움 결과 저장
+  const handleSaveFilled = async () => {
+    if (!selectedPage || !fillPersonnelId || !numericBidId) return;
+    try {
+      await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId, true);
+      setFilledHtml(null);
+      setFillStats(null);
+      loadBid();
+    } catch {
+      alert('저장에 실패했습니다.');
+    }
+  };
+
+  // 자동 채움 원본 복원
+  const handleResetFilled = () => {
+    setFilledHtml(null);
+    setFillStats(null);
+  };
+
   // 라이브러리 모달 열기
   const openLibraryModal = async () => {
     setShowLibraryModal(true);
@@ -309,6 +350,13 @@ export default function BidWorkspace() {
 
   // 선택된 장표
   const selectedPage = bid?.pages.find((p) => p.id === selectedPageId) || null;
+
+  // 선택 장표 변경 시 자동 채움 상태 초기화
+  useEffect(() => {
+    setFilledHtml(null);
+    setFillStats(null);
+    setFillPersonnelId(null);
+  }, [selectedPageId]);
 
   if (loading) {
     return (
@@ -470,32 +518,97 @@ export default function BidWorkspace() {
         </div>
 
         {/* 우측: 미리보기 */}
-        <div className="flex-1 bg-gray-100 flex items-center justify-center">
+        <div className="flex-1 bg-gray-100 flex flex-col">
           {selectedPage ? (
             selectedPage.page_type === 'html' && selectedPage.html_content ? (
-              <div className="w-full h-full">
+              <>
+                {/* 미리보기 헤더 */}
                 <div className="flex items-center gap-2 px-4 py-2 bg-white border-b text-sm text-gray-600">
                   <Eye size={14} />
                   {selectedPage.page_name || '미리보기'}
+                  {filledHtml && (
+                    <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                      자동 채움 적용됨
+                    </span>
+                  )}
                 </div>
-                <iframe
-                  srcDoc={selectedPage.html_content}
-                  className="w-full bg-white"
-                  style={{ height: 'calc(100% - 37px)' }}
-                  title="장표 미리보기"
-                />
-              </div>
+
+                {/* 자동 채움 툴바 */}
+                {bid.personnel.length > 0 && (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b">
+                    <UserCheck size={14} className="text-gray-500 flex-shrink-0" />
+                    <select
+                      value={fillPersonnelId ?? ''}
+                      onChange={(e) => setFillPersonnelId(e.target.value ? Number(e.target.value) : null)}
+                      className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">인력 선택...</option>
+                      {bid.personnel.map((bp: BidPersonnel) => (
+                        <option key={bp.personnel_id} value={bp.personnel_id}>
+                          {bp.personnel_name}
+                          {bp.role_in_bid ? ` (${bp.role_in_bid})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleFillPersonnel}
+                      disabled={!fillPersonnelId || filling}
+                      className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {filling ? <Loader2 size={14} className="animate-spin" /> : null}
+                      채우기
+                    </button>
+                    {filledHtml && (
+                      <>
+                        <button
+                          onClick={handleSaveFilled}
+                          className="flex items-center gap-1 px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                          저장
+                        </button>
+                        <button
+                          onClick={handleResetFilled}
+                          className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                        >
+                          원본
+                        </button>
+                      </>
+                    )}
+                    {fillStats && (
+                      <span className="ml-auto text-xs text-gray-500">
+                        {fillStats.filled}개 치환
+                        {fillStats.remaining.length > 0 && (
+                          <span className="text-amber-600"> / {fillStats.remaining.length}개 미치환</span>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {/* iframe 미리보기 */}
+                <div className="flex-1">
+                  <iframe
+                    srcDoc={filledHtml || selectedPage.html_content}
+                    className="w-full h-full bg-white"
+                    title="장표 미리보기"
+                  />
+                </div>
+              </>
             ) : (
-              <div className="text-center text-gray-500">
-                <FileText size={48} className="mx-auto mb-3 text-gray-300" />
-                <p className="font-medium">{selectedPage.page_name}</p>
-                <p className="text-sm mt-1">PDF 파일은 미리보기가 지원되지 않습니다.</p>
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center text-gray-500">
+                  <FileText size={48} className="mx-auto mb-3 text-gray-300" />
+                  <p className="font-medium">{selectedPage.page_name}</p>
+                  <p className="text-sm mt-1">PDF 파일은 미리보기가 지원되지 않습니다.</p>
+                </div>
               </div>
             )
           ) : (
-            <div className="text-center text-gray-400">
-              <Eye size={48} className="mx-auto mb-3" />
-              <p>장표를 선택하면 미리보기가 표시됩니다</p>
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center text-gray-400">
+                <Eye size={48} className="mx-auto mb-3" />
+                <p>장표를 선택하면 미리보기가 표시됩니다</p>
+              </div>
             </div>
           )}
         </div>

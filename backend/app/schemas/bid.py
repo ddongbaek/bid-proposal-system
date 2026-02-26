@@ -193,6 +193,24 @@ class PageLibraryResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+# ─── 인력 자동 채움 스키마 ───
+
+
+class FillRequest(BaseModel):
+    """인력 자동 채움 요청"""
+
+    personnel_id: int
+    save: bool = False  # true이면 채움 결과를 DB에 저장
+
+
+class FillResponse(BaseModel):
+    """인력 자동 채움 응답"""
+
+    html_content: str
+    filled_count: int  # 치환된 변수 수
+    remaining: list[str]  # 치환되지 않은 변수 목록
+
+
 # ─── AI 서비스 스키마 ───
 
 
