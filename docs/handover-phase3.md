@@ -7,7 +7,7 @@
 
 ## 1. 이번 세션에서 완료한 작업
 
-### 1.1 입찰 CRUD API (11개 엔드포인트)
+### 1.1 입찰 CRUD API (13개 엔드포인트)
 
 | Method | 경로 | 기능 | 상태 |
 |--------|------|------|------|
@@ -19,6 +19,7 @@
 | POST | `/api/bids/{id}/pages/html` | HTML 장표 추가 | ✅ 테스트 완료 |
 | POST | `/api/bids/{id}/pages/pdf` | PDF 파일 업로드 | ✅ 코드 완성 |
 | PUT | `/api/bids/{id}/pages/reorder` | 장표 순서 변경 | ✅ 코드 완성 |
+| GET | `/api/bids/{id}/pages/{page_id}` | 개별 장표 조회 | ✅ 테스트 완료 |
 | PUT | `/api/bids/{id}/pages/{page_id}` | 장표 수정 | ✅ 코드 완성 |
 | DELETE | `/api/bids/{id}/pages/{page_id}` | 장표 삭제 | ✅ 코드 완성 |
 | POST | `/api/bids/{id}/personnel` | 인력 배정 | ✅ 코드 완성 |
@@ -50,7 +51,7 @@
 ### Backend (신규)
 | 파일 | 변경 내용 |
 |------|----------|
-| `backend/app/routers/bid.py` | **신규** — 입찰 CRUD 11개 엔드포인트 (~410줄) |
+| `backend/app/routers/bid.py` | **신규** — 입찰 CRUD 13개 엔드포인트 (~423줄) |
 | `backend/app/services/pdf_service.py` | **신규** — Playwright HTML→PDF + PyPDF2 병합 (~232줄) |
 
 ### Backend (수정)
@@ -130,6 +131,7 @@ router.delete("/{bid_id}")        → delete_bid + 파일 정리
 router.post("/{bid_id}/pages/html")    → add_page_html
 router.post("/{bid_id}/pages/pdf")     → add_page_pdf (파일 업로드)
 router.put("/{bid_id}/pages/reorder")  → reorder_pages
+router.get("/{bid_id}/pages/{id}")     → get_page
 router.put("/{bid_id}/pages/{id}")     → update_page
 router.delete("/{bid_id}/pages/{id}")  → delete_page + 파일 정리
 router.post("/{bid_id}/personnel")     → add_personnel (중복 방지)
@@ -146,10 +148,10 @@ router.delete("/{bid_id}/personnel/{id}") → remove_personnel
 | HWP 변환 (/api/hwp) | 4개 | ✅ 동작 (convert 제외) |
 | AI 서비스 (/api/ai) | 2개 | ✅ 동작 (Gemini 검증 완료) |
 | 장표 라이브러리 (/api/library) | 4개 | ✅ 동작 |
-| 입찰 관리 (/api/bids) | 11개 | ✅ 동작 |
+| 입찰 관리 (/api/bids) | 13개 | ✅ 동작 |
 | PDF 생성 (/api/pdf) | 3개 | ✅ 동작 (generate/merge/download) |
 | 헬스체크 (/api/health) | 1개 | ✅ 동작 |
-| **합계** | **39개** | |
+| **합계** | **41개** | |
 
 ---
 
@@ -218,21 +220,35 @@ router.delete("/{bid_id}/personnel/{id}") → remove_personnel
 - `HwpConverter.tsx`: "입찰에 추가" 녹색 버튼 + 입찰 선택 모달
 - 전체 HTML 또는 선택 서식만 `bidApi.addPageHtml()`로 추가 → workspace 이동
 
-### 7.6 PDF 생성 다운로드 수정 (세션7)
-- `BidWorkspace.tsx`: `pdfApi.merge` (JSON 기대) → `fetch` + blob 다운로드로 수정
+### 7.6 PDF 생성 다운로드 수정 (세션7~8)
+- `api.ts`: `pdfApi.merge()`/`pdfApi.generate()`를 `responseType: 'blob'`으로 수정하여 PDF 바이너리 직접 반환
+- `BidWorkspace.tsx`: `pdfApi.merge()` 호출 → blob 다운로드 (`URL.createObjectURL`)
 - 파일명: `{입찰명}_proposal.pdf`
 
----
-
-## 8. 남은 작업 (Phase 4)
-
-1. [ ] Docker Compose 프로덕션 빌드 (Playwright + 한글 폰트 포함)
-2. [ ] 환경변수 정리 + SQLite 백업 스크립트
-3. [ ] IP 화이트리스트 실 설정 + CORS 조정
+### 7.7 프론트엔드 타입 동기화 (세션8)
+- `types/index.ts`: `BidPageUpdate`에 `pdf_page_start`/`pdf_page_end` 추가
+- `BidPersonnel`에 `personnel_department` 추가
+- `BidPersonnelCreate`에 `sort_order` 추가, `custom_data`/`selected_projects`를 JSON 문자열로 통일
 
 ---
 
-## 8. 실행 방법
+## 8. Phase 4 완료 (Docker + 환경변수 + 백업) ✅
+
+| 항목 | 상태 | 설명 |
+|------|------|------|
+| Backend Dockerfile | ✅ | Playwright Chromium + Noto CJK 한글 폰트 |
+| Frontend Dockerfile | ✅ | `VITE_API_BASE_URL=/api` nginx 프록시 |
+| docker-compose.yml | ✅ | `DEV_MODE=false`, `CORS_ORIGINS` JSON, `env_file` |
+| .env.example | ✅ | 환경변수 템플릿 (시크릿 미포함) |
+| scripts/backup.sh | ✅ | Linux/Mac SQLite + uploads 백업 (30일 보관) |
+| scripts/backup.bat | ✅ | Windows 백업 스크립트 |
+| nginx.conf | ✅ | `proxy_read_timeout 120s` (PDF 생성 대기) |
+| config.py | ✅ | `CORS_ORIGINS` field_validator (JSON/CSV 파싱) |
+| allowed_ips.yaml | ✅ | Docker 내부(172.16.0.0/12) + 사내(192.168.0.0/16) |
+
+---
+
+## 9. 실행 방법
 
 ```bash
 # 백엔드

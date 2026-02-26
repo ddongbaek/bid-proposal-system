@@ -91,6 +91,7 @@ bid-proposal-system/
 ├── CLAUDE.md                     # 이 파일 (프로젝트 가이드)
 ├── docker-compose.yml            # backend(8000) + frontend(80)
 ├── .env                          # GEMINI_API_KEY, DB 경로 등
+├── .env.example                  # 환경변수 템플릿 (시크릿 미포함)
 ├── .gitignore
 │
 ├── docs/                         # 프로젝트 문서
@@ -98,7 +99,9 @@ bid-proposal-system/
 │   ├── schema.md                 # DB 스키마 상세 (7개 테이블)
 │   ├── api-spec.md               # API 엔드포인트 명세 (30+개)
 │   ├── ui-spec.md                # 화면 흐름/와이어프레임 (8개 페이지)
-│   └── handover-phase1.md        # Phase 1 인수인계 문서
+│   ├── handover-phase1.md        # Phase 1 인수인계 문서
+│   ├── handover-phase2-hwp.md    # Phase 2 HWP 변환 인수인계
+│   └── handover-phase3.md        # Phase 3 장표 조합기 + PDF 인수인계
 │
 ├── frontend/                     # React 프론트엔드
 │   ├── Dockerfile                # Node 빌드 → nginx 서빙
@@ -154,7 +157,8 @@ bid-proposal-system/
 │       └── routers/
 │           ├── personnel.py      # 인력 CRUD 13개 엔드포인트
 │           ├── ai.py             # AI API (pdf-to-html, modify)
-│           ├── bid.py            # 입찰 CRUD 11개 엔드포인트 (장표/인력 포함)
+│           ├── bid.py            # 입찰 CRUD 13개 엔드포인트 (장표/인력 포함)
+│           ├── pdf.py            # PDF 생성/병합/다운로드 3개 엔드포인트
 │           ├── library.py        # 장표 라이브러리 CRUD
 │           └── hwp.py            # HWP 변환 API (to-html, convert, info)
 │
@@ -163,6 +167,10 @@ bid-proposal-system/
 │   ├── uploads/                  # 업로드 파일 (자격증, 공고문, 장표 PDF)
 │   ├── thumbnails/               # PDF 썸네일 이미지
 │   └── generated/                # 생성된 PDF 파일
+│
+├── scripts/                      # 유틸리티 스크립트
+│   ├── backup.sh                 # Linux/Mac 백업 스크립트 (SQLite + uploads, 30일 보관)
+│   └── backup.bat                # Windows 백업 스크립트
 │
 └── config/
     └── allowed_ips.yaml          # IP 화이트리스트 설정
@@ -212,7 +220,7 @@ bid-proposal-system/
 | GET | /api/library/{id} | 장표 상세 조회 (HTML/CSS 포함) |
 | DELETE | /api/library/{id} | 장표 삭제 |
 
-### Phase 3: 입찰 관리 + PDF (11개)
+### Phase 3: 입찰 관리 + PDF (16개)
 
 | Method | 경로 | 기능 |
 |--------|------|------|
@@ -224,10 +232,14 @@ bid-proposal-system/
 | POST | /api/bids/{id}/pages/html | HTML 장표 추가 |
 | POST | /api/bids/{id}/pages/pdf | PDF 파일 업로드 |
 | PUT | /api/bids/{id}/pages/reorder | 장표 순서 변경 |
+| GET | /api/bids/{id}/pages/{page_id} | 개별 장표 조회 |
 | PUT | /api/bids/{id}/pages/{page_id} | 장표 수정 |
 | DELETE | /api/bids/{id}/pages/{page_id} | 장표 삭제 |
 | POST | /api/bids/{id}/personnel | 인력 배정 |
 | DELETE | /api/bids/{id}/personnel/{bp_id} | 인력 해제 |
+| POST | /api/pdf/generate/{page_id} | 개별 장표 HTML→PDF 변환 |
+| POST | /api/pdf/merge/{bid_id} | 입찰 전체 PDF 병합 다운로드 |
+| GET | /api/pdf/download/{bid_id} | 생성된 PDF 다운로드 |
 
 ---
 
@@ -283,8 +295,16 @@ bid-proposal-system/
 - 장표 추가 3가지: 라이브러리 불러오기, 새 장표(편집기), PDF 업로드
 - 인력 배정/해제 (인력 검색, 중복 방지)
 - PDF 서비스 (`backend/app/services/pdf_service.py`) — Playwright HTML→PDF + PyPDF2 병합
-- 참고: `playwright install chromium` 실행 후 PDF 생성 실 테스트 필요
-### Phase 4: 마무리 (Docker 프로덕션, 설정, 백업)
+- PDF 라우터 (`backend/app/routers/pdf.py`) — 생성/병합/다운로드 엔드포인트
+- Playwright chromium 설치 + PDF 생성 E2E 검증 완료
+### Phase 4: Docker 프로덕션 + 환경변수 + 백업 ✅
+- Backend Dockerfile: Playwright Chromium + Noto CJK 한글 폰트
+- Frontend Dockerfile: `VITE_API_BASE_URL=/api` nginx 프록시
+- docker-compose.yml: `DEV_MODE=false`, `CORS_ORIGINS` JSON, `env_file` 지원
+- `.env.example`: 환경변수 템플릿
+- `scripts/backup.sh`, `scripts/backup.bat`: SQLite DB + uploads 백업 (30일 보관)
+- `nginx.conf`: `proxy_read_timeout 120s` (PDF 생성 대기)
+- `config/allowed_ips.yaml`: Docker 내부 + 사내 네트워크 대역
 
 각 Phase의 상세 내용은 docs/sop.md 참조.
 Phase별 인수인계는 docs/handover-phase*.md 참조.
@@ -329,7 +349,7 @@ docker-compose up --build
 | 2026-02-25 | 재직증명서를 백엔드 PDF 생성 대신 프론트 HTML+브라우저 인쇄 방식 | 서버 의존성 없이 즉시 출력 가능 |
 | 2026-02-25 | Pretendard 폰트 CDN 사용 | 한글 웹폰트 중 가장 범용적, 인쇄 품질 우수 |
 | 2026-02-25 | 간이 마이그레이션(ALTER TABLE) 도입 | Alembic 없이 기존 DB 호환 유지 |
-| 2026-02-25 | gemini-2.0-flash 모델 사용 (temperature 0.1~0.2) | 정확한 변환 우선, 비용 대비 성능 최적 |
+| 2026-02-25 | gemini-2.5-flash 모델 사용 (temperature 0.1~0.2) | 정확한 변환 우선, 비용 대비 성능 최적 |
 | 2026-02-25 | 장표 편집기를 독립 경로(/editor)로 분리 | 입찰 없이도 장표 생성/편집 가능 |
 | 2026-02-25 | Monaco Editor vs-dark 테마 | 코드 가독성, 개발자 친화적 |
 | 2026-02-25 | Gemini PDF→HTML 대신 pyhwp HWP→HTML 채택 | Gemini 변환 품질 부족, pyhwp가 표/양식 구조 정확히 유지 |
@@ -344,3 +364,7 @@ docker-compose up --build
 | 2026-02-25 | 입찰 삭제 시 cascade + 물리 파일 정리 | DB + 파일 시스템 일관성 유지 |
 | 2026-02-25 | API trailing slash 규칙 통일 (FastAPI) | list/create는 `/`, 개별 리소스는 `/{id}` |
 | 2026-02-25 | 멀티에이전트 팀 병렬 개발 (Phase 3) | backend-dev + frontend-dev + reviewer 역할 분리 |
+| 2026-02-25 | pdf_service를 sync_playwright + asyncio.to_thread로 변경 | Windows uvicorn SelectorEventLoop의 subprocess 미지원 해결 |
+| 2026-02-25 | pdfApi를 responseType: blob으로 반환 | 백엔드가 PDF 바이너리를 직접 반환, JSON 래핑 불필요 |
+| 2026-02-26 | Playwright Chromium을 Backend Dockerfile에 포함 | 프로덕션 Docker에서 PDF 생성 지원 |
+| 2026-02-26 | .env.example 템플릿 제공 | 시크릿 없이 환경변수 구조 공유 |
