@@ -269,6 +269,45 @@ bid-proposal-system/
 
 ---
 
+## 핵심 데이터 흐름 (사용자 워크플로우 → 코드)
+
+### 흐름 1: HWP 양식 → 장표 편집 → 라이브러리 저장
+```
+[사용자] HWP 파일 업로드
+→ HwpConverter.tsx → POST /api/hwp/to-html → libreoffice_service.py (pyhwp)
+→ 서식 선택기 UI (체크박스) → "편집기로" 버튼
+→ sessionStorage에 HTML/CSS 저장 → navigate(/editor)
+→ PageEditor.tsx → useRef로 sessionStorage 읽기
+→ Monaco Editor (HTML/CSS 편집) + AI 채팅 (Gemini diff)
+→ "라이브러리에 저장" → POST /api/library → page_library 테이블
+```
+
+### 흐름 2: 입찰 생성 → 장표 조합 → PDF 출력
+```
+[사용자] /bids 에서 "새 입찰" 클릭
+→ BidList.tsx → POST /api/bids/ → bids 테이블
+→ navigate(/bids/:id/workspace)
+→ BidWorkspace.tsx:
+  ├── "라이브러리" 모달 → GET /api/library → 선택 → POST /api/bids/:id/pages/html → bid_pages 테이블
+  ├── "새 장표" → navigate(/bids/:id/pages/new/edit) → PageEditor.tsx
+  ├── "PDF 업로드" → POST /api/bids/:id/pages/pdf (파일 저장 + bid_pages)
+  ├── 드래그앤드롭 순서 변경 → PUT /api/bids/:id/pages/reorder (@dnd-kit)
+  ├── 인력 배정 → POST /api/bids/:id/personnel (bid_personnel 테이블)
+  └── "PDF 생성" → POST /api/pdf/merge/:id
+      → pdf_service.py: HTML장표→Playwright PDF + 업로드PDF→원본 → PyPDF2 병합
+      → blob 다운로드 (프론트 fetch + URL.createObjectURL)
+```
+
+### 흐름 3: 장표 편집 왕복 (Workspace ↔ Editor)
+```
+BidWorkspace.tsx → 연필 아이콘 클릭 → navigate(/bids/:id/pages/:pageId/edit)
+→ PageEditor.tsx → GET /api/bids/:id/pages/:pageId (장표 로드)
+→ 편집 후 녹색 "저장" 버튼 → PUT /api/bids/:id/pages/:pageId
+→ navigate(-1) → BidWorkspace로 복귀
+```
+
+---
+
 ## 구현 순서
 
 ### Phase 0: 프로젝트 문서화 ✅
@@ -289,7 +328,7 @@ bid-proposal-system/
 - HWP→편집기 연동 (sessionStorage, StrictMode 대응)
 - 참고: Gemini AI 수정은 GEMINI_API_KEY 설정 후 실사용 테스트 필요
 ### Phase 3: 장표 조합기 + PDF 출력 ✅
-- 입찰 CRUD API 11개 엔드포인트 (`backend/app/routers/bid.py`)
+- 입찰 CRUD API 13개 엔드포인트 (`backend/app/routers/bid.py`)
 - BidList 페이지 — 입찰 목록/검색/필터/생성 모달
 - BidWorkspace 페이지 — 드래그앤드롭 장표 순서 조정 (@dnd-kit), iframe 미리보기
 - 장표 추가 3가지: 라이브러리 불러오기, 새 장표(편집기), PDF 업로드
@@ -313,23 +352,72 @@ Phase별 인수인계는 docs/handover-phase*.md 참조.
 
 ## 실행 방법
 
+### 최초 설치 (1회)
+```bash
+# 백엔드
+cd backend
+pip install -r requirements.txt
+playwright install chromium          # PDF 생성용 (~100MB)
+
+# 프론트엔드
+cd frontend
+npm install
+```
+
 ### 로컬 개발 (백엔드 + 프론트엔드)
 ```bash
 # 터미널 1: 백엔드
 cd backend && uvicorn app.main:app --reload --port 8000
 
 # 터미널 2: 프론트엔드
-cd frontend && npm install && npm run dev
+cd frontend && npm run dev
 ```
 - 프론트엔드: http://localhost:5173
 - 백엔드 Swagger: http://localhost:8000/api/docs
+- DB 자동 생성: `data/db/bid_proposal.db` (첫 실행 시)
 
-### Docker
+### Docker (프로덕션)
 ```bash
+cp .env.example .env    # 환경변수 설정 (.env에 GEMINI_API_KEY 등)
 docker-compose up --build
 ```
 - 프론트엔드: http://localhost (포트 80)
 - 백엔드: http://localhost:8000/api/docs
+
+---
+
+## 디버깅 가이드 (과거 삽질 기록)
+
+### 1. uvicorn이 코드 변경을 반영 안 할 때 (Windows)
+```bash
+# Python 프로세스 전부 종료 + 캐시 삭제 + 재시작
+taskkill //F //IM python.exe
+find backend -name __pycache__ -type d -exec rm -rf {} +
+cd backend && uvicorn app.main:app --reload --port 8000
+```
+**원인**: Windows에서 `--reload`가 간헐적으로 파일 변경 감지 실패. `__pycache__` 오래된 .pyc가 우선 로드됨.
+
+### 2. Playwright PDF 생성 실패
+- **`async_playwright()` 사용 금지** → `sync_playwright()` + `asyncio.to_thread()` 사용
+- **원인**: Windows uvicorn의 `SelectorEventLoop`가 subprocess를 지원하지 않음
+- **파일**: `backend/app/services/pdf_service.py`
+
+### 3. API 호출 시 307 Redirect
+- FastAPI 라우터에서 `@router.get("/")` → 프론트에서 `/bids`로 호출하면 307 발생
+- **해결**: trailing slash 붙여서 호출 (`/bids/`, `/library/`)
+- **파일**: `frontend/src/services/api.ts`
+
+### 4. HWP→편집기 데이터 전달 (sessionStorage)
+- React StrictMode에서 useEffect 2번 실행 → sessionStorage 데이터 사라짐
+- **해결**: render 단계에서 `useRef`로 캡처 → useEffect에서 ref 읽기
+- **주의**: `hwpDataRef.current = null` 절대 하면 안됨
+- **파일**: `frontend/src/pages/PageEditor.tsx`
+
+### 5. Vite 캐시 문제
+```bash
+rm -rf frontend/node_modules/.vite
+cd frontend && npm run dev
+```
 
 ---
 
