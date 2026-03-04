@@ -170,6 +170,37 @@ async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
         )
 
 
+def _summarize_html_structure(html: str) -> str:
+    """큰 HTML의 구조를 요약 (AI에게 CSS 셀렉터 힌트 제공용)."""
+    lines = []
+
+    # 사용된 CSS 클래스 목록
+    classes = set(re.findall(r'class="([^"]+)"', html))
+    class_list = sorted(classes)[:30]  # 상위 30개만
+    lines.append(f"사용된 CSS 클래스: {', '.join(class_list)}")
+
+    # 테이블 수
+    table_count = html.count("<table")
+    lines.append(f"테이블 수: {table_count}개")
+
+    # <style> 내 기존 CSS 규칙 (셀렉터만)
+    style_match = re.findall(r"<style[^>]*>(.*?)</style>", html, re.DOTALL)
+    if style_match:
+        selectors = re.findall(r"([.#\w][^{]+)\{", style_match[0])
+        sel_list = [s.strip() for s in selectors[:20]]
+        lines.append(f"기존 CSS 셀렉터: {', '.join(sel_list)}")
+
+    # body 내 주요 구조
+    body_match = re.search(r"<body[^>]*>(.*?)</body>", html, re.DOTALL)
+    if body_match:
+        body = body_match.group(1)
+        div_classes = re.findall(r'<div[^>]*class="([^"]+)"', body)
+        if div_classes:
+            lines.append(f"body 내 div 클래스: {', '.join(set(div_classes))}")
+
+    return "\n".join(lines)
+
+
 def _apply_replacements(html: str, replacements: list[dict]) -> str:
     """AI가 반환한 검색/치환 목록을 원본 HTML에 순서대로 적용."""
     for r in replacements:
@@ -215,11 +246,45 @@ async def modify_html(
     """
     model = _get_gemini_model()
 
+    # HTML 크기에 따라 전략 분기
+    is_large_html = len(html_content) > 50000
+
     css_section = ""
     if css_content:
         css_section = f"## 현재 CSS\n```css\n{css_content}\n```"
 
-    prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
+    if is_large_html:
+        # 큰 HTML (pyhwp 변환 등): CSS 추가 방식으로 처리
+        # HTML 전체를 보내지 않고, 구조 요약만 전달
+        html_summary = _summarize_html_structure(html_content)
+        prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
+
+## HTML 구조 요약
+{html_summary}
+
+{css_section}
+
+## 수정 요청
+{request}
+
+## 중요: 응답 형식
+이 HTML은 매우 크므로, **새로운 CSS 규칙만 추가**하여 수정하세요.
+HTML 태그 자체를 변경하지 마세요. CSS `!important`를 사용해도 됩니다.
+
+```json
+{{
+  "css_addition": "추가할 CSS 코드",
+  "description": "변경 내용 요약"
+}}
+```
+
+규칙:
+- CSS 셀렉터로 기존 클래스명(.TableControl, .parashape-N, table, td 등)을 활용하세요.
+- `!important`를 적극 사용하여 기존 스타일을 덮어쓰세요.
+- JSON 코드 블록 하나만 반환. 다른 설명 불필요.
+"""
+    else:
+        prompt = f"""당신은 HTML/CSS 코드를 수정하는 전문가입니다.
 
 ## 현재 HTML (일부 생략 가능)
 ```html
@@ -278,7 +343,7 @@ async def modify_html(
         if not json_match:
             # 코드 블록 없이 JSON만 반환한 경우
             json_match = re.search(
-                r"\{[\s\S]*\"replacements\"[\s\S]*\}", response.text
+                r"\{[\s\S]*(?:\"replacements\"|\"css_addition\")[\s\S]*\}", response.text
             )
 
         if not json_match:
@@ -310,8 +375,26 @@ async def modify_html(
                 "changes_description": "AI 응답을 파싱하지 못했습니다. 다시 시도해주세요.",
             }
 
-        replacements = data.get("replacements", [])
         description = data.get("description", "수정이 완료되었습니다.")
+
+        # css_addition 모드 (큰 HTML용): CSS를 </head> 앞에 주입
+        css_addition = data.get("css_addition")
+        if css_addition:
+            new_style = f"\n<style type=\"text/css\">\n/* AI 수정 */\n{css_addition}\n</style>\n"
+            if "</head>" in html_content:
+                modified_html = html_content.replace("</head>", new_style + "</head>")
+            elif "</body>" in html_content:
+                modified_html = html_content.replace("</body>", new_style + "</body>")
+            else:
+                modified_html = html_content + new_style
+            return {
+                "html_content": modified_html,
+                "css_content": css_content,
+                "changes_description": description,
+            }
+
+        # replacements 모드 (작은 HTML용): 검색/치환
+        replacements = data.get("replacements", [])
 
         if not replacements:
             return {

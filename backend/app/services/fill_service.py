@@ -5,7 +5,7 @@ import logging
 import re
 from datetime import date
 
-from app.models.bid import BidPersonnel
+from app.models.bid import BidPersonnel, CompanyInfo
 from app.models.personnel import Certification, Personnel, ProjectHistory
 
 logger = logging.getLogger(__name__)
@@ -270,6 +270,65 @@ def fill_personnel(
     logger.info(
         "인력 자동 채움 완료: personnel_id=%d, 치환=%d개, 미치환=%d개",
         personnel.id,
+        filled_count,
+        len(remaining),
+    )
+
+    return {
+        "html_content": result_html,
+        "filled_count": filled_count,
+        "remaining": remaining,
+    }
+
+
+def fill_company(
+    html_content: str,
+    company_info: CompanyInfo,
+) -> dict:
+    """
+    HTML 내 {{placeholder}} 패턴을 회사 기본정보 데이터로 치환한다.
+
+    지원 변수: company_name, business_number, corporate_number, representative,
+    representative_birth, address, phone, fax, email, website,
+    business_type, business_category, establishment_date, capital, employee_count
+
+    Returns:
+        {"html_content": str, "filled_count": int, "remaining": list[str]}
+    """
+    if not html_content:
+        return {"html_content": "", "filled_count": 0, "remaining": []}
+
+    vars_before = set(_extract_variables(html_content))
+    result_html = html_content
+
+    # 회사 정보 필드 매핑
+    company_field_map: dict[str, str] = {
+        "company_name": _safe_str(company_info.company_name),
+        "business_number": _safe_str(company_info.business_number),
+        "corporate_number": _safe_str(company_info.corporate_number),
+        "representative": _safe_str(company_info.representative),
+        "representative_birth": _safe_str(company_info.representative_birth),
+        "address": _safe_str(company_info.address),
+        "phone": _safe_str(company_info.phone),
+        "fax": _safe_str(company_info.fax),
+        "email": _safe_str(company_info.email),
+        "website": _safe_str(company_info.website),
+        "business_type": _safe_str(company_info.business_type),
+        "business_category": _safe_str(company_info.business_category),
+        "establishment_date": _safe_str(company_info.establishment_date),
+        "capital": _safe_str(company_info.capital),
+        "employee_count": _safe_str(company_info.employee_count),
+    }
+
+    for key, value in company_field_map.items():
+        result_html = result_html.replace("{{" + key + "}}", value)
+
+    vars_after = set(_extract_variables(result_html))
+    filled_count = len(vars_before - vars_after)
+    remaining = sorted(vars_after)
+
+    logger.info(
+        "회사 정보 자동 채움 완료: 치환=%d개, 미치환=%d개",
         filled_count,
         len(remaining),
     )

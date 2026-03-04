@@ -265,10 +265,11 @@ _FONT_NORMALIZE_CSS = """
 @font-face { font-family: "HY헤드라인M"; src: local("HY헤드라인M"), local("HYHeadLine"); }
 @font-face { font-family: "HY울릉도M"; src: local("HY울릉도M"); }
 
-/* 전역 폰트 fallback (원본 폰트 없을 때만 적용) */
-body {
+/* 전역 폰트 fallback (원본 폰트 없을 때만 적용) + 배경 흰색 강제 */
+html, body {
   font-family: "맑은 고딕", "Malgun Gothic", "Nanum Gothic", "나눔고딕",
                "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  background-color: #fff !important;
 }
 
 /* TableControl: 테이블 래퍼 div (원본 <p><span> → <div>로 변환됨) */
@@ -420,15 +421,7 @@ def _fix_table_control_structure(html: str) -> str:
 
         pos = close_p_end
 
-    output = ''.join(result)
-
-    # 중첩 테이블 내의 TableControl도 처리 (재귀)
-    if '<span class="TableControl"' in output:
-        remaining = output.count('<span class="TableControl"')
-        logger.debug("중첩 TableControl %d개 추가 처리", remaining)
-        return _fix_table_control_structure(output)
-
-    return output
+    return ''.join(result)
 
 
 def _inject_normalize_css(html: str) -> str:
@@ -437,7 +430,18 @@ def _inject_normalize_css(html: str) -> str:
 
     # pyhwp가 <p> 안에 <span><table>을 넣지만, HTML 파서는 <p> 안에 블록 요소를 허용하지 않아
     # 테이블이 p 밖으로 빠져나옴. 해결: <p>...<span> 구조를 <div>로 변환
-    html = _fix_table_control_structure(html)
+    # 실패 시 원본 유지 (PDF 렌더링에는 영향 없음 — 브라우저가 자체 처리)
+    try:
+        for _pass in range(10):
+            prev_count = html.count('<span class="TableControl"')
+            if prev_count == 0:
+                break
+            html = _fix_table_control_structure(html)
+            new_count = html.count('<span class="TableControl"')
+            if new_count == 0 or new_count >= prev_count:
+                break
+    except Exception:
+        logger.warning("TableControl 변환 스킵 (복잡한 구조)")
 
     # .Normal 클래스에서 text-align 제거 (parashape 클래스의 text-align이 확실히 적용되도록)
     html = re.sub(
@@ -527,6 +531,11 @@ def parse_html_sections(html: str) -> list[dict]:
         })
 
     # 각 서식 경계 → 다음 서식 경계까지를 하나의 섹션으로
+    # index는 순차 번호 사용 (서식 번호가 중복될 수 있으므로)
+    next_index = 1 if sections else 0  # 표지/목차가 있으면 1부터, 없으면 0부터
+    if sections:
+        next_index = sections[-1]["index"] + 1
+
     for i, boundary in enumerate(boundaries):
         start = boundary["position"]
         # 끝: 다음 서식의 시작 또는 body 끝
@@ -539,11 +548,12 @@ def parse_html_sections(html: str) -> list[dict]:
             label += f" - {subtitle}"
 
         sections.append({
-            "index": form_num,
+            "index": next_index,
             "label": label,
             "start": start,
             "end": end,
         })
+        next_index += 1
 
     return sections
 

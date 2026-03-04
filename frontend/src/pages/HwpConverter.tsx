@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import { Upload, FileText, Loader2, X, ExternalLink, Code, Pencil, CheckSquare, Square, FolderPlus } from 'lucide-react';
 import { hwpApi, bidApi } from '../services/api';
 import type { Bid } from '../types';
@@ -73,7 +74,9 @@ export default function HwpConverter() {
         setSections(result.sections);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'HTML 변환에 실패했습니다.';
+      const msg = axios.isAxiosError(err) && err.response?.data?.detail
+        ? err.response.data.detail
+        : err instanceof Error ? err.message : 'HTML 변환에 실패했습니다.';
       setError(msg);
     } finally {
       setConvertLoading(false);
@@ -140,20 +143,27 @@ export default function HwpConverter() {
     setAddingToBid(bid.id);
 
     try {
-      let html = htmlContent!;
-
-      // 선택된 서식만 추출해서 추가
       if (useSelectedSections && file && selectedSections.size > 0) {
+        // 각 서식을 개별 장표로 분리해서 추가
         const indices = Array.from(selectedSections).sort((a, b) => a - b);
-        const result = await hwpApi.extractSections(file, indices);
-        html = result.html_content;
+        for (const idx of indices) {
+          const result = await hwpApi.extractSections(file, [idx]);
+          const sec = sections.find((s) => s.index === idx);
+          const pageName = sec ? sec.label : `서식 ${idx}`;
+          await bidApi.addPageHtml(bid.id, {
+            page_name: pageName,
+            html_content: result.html_content,
+            css_content: null,
+          });
+        }
+      } else {
+        // 전체 HTML을 하나의 장표로 추가
+        await bidApi.addPageHtml(bid.id, {
+          page_name: file?.name?.replace(/\.hwp$/i, '') || 'HWP 변환',
+          html_content: htmlContent!,
+          css_content: null,
+        });
       }
-
-      await bidApi.addPageHtml(bid.id, {
-        page_name: file?.name?.replace(/\.hwp$/i, '') || 'HWP 변환',
-        html_content: html,
-        css_content: null,
-      });
 
       setShowBidModal(false);
       navigate(`/bids/${bid.id}/workspace`);

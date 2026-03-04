@@ -1,5 +1,5 @@
 from app.models.personnel import Personnel, Certification, ProjectHistory
-from app.models.bid import Bid, BidPage, BidPersonnel, PageLibrary
+from app.models.bid import Bid, BidPage, BidPersonnel, PageLibrary, CompanyInfo
 
 __all__ = [
     "Personnel",
@@ -9,4 +9,5 @@ __all__ = [
     "BidPage",
     "BidPersonnel",
     "PageLibrary",
+    "CompanyInfo",
 ]

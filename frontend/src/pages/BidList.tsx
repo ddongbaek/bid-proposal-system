@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FileText, Clock, CheckCircle, Calendar, Building2, Hash } from 'lucide-react';
+import { Plus, FileText, Clock, CheckCircle, Calendar, Building2, Hash, Trash2 } from 'lucide-react';
 import SearchBar from '../components/common/SearchBar';
 import Pagination from '../components/common/Pagination';
 import Modal from '../components/common/Modal';
+import ConfirmDialog from '../components/common/ConfirmDialog';
 import { bidApi } from '../services/api';
 import type { Bid, BidStatus, BidCreate } from '../types';
 
@@ -47,6 +48,7 @@ export default function BidList() {
   const [statusFilter, setStatusFilter] = useState('전체');
   const [loading, setLoading] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Bid | null>(null);
   const pageSize = 20;
 
   const fetchData = useCallback(async () => {
@@ -91,6 +93,16 @@ export default function BidList() {
       // fallback: 모달 닫고 목록 새로고침
       setShowCreateModal(false);
       fetchData();
+    }
+  };
+
+  const handleDelete = async (bid: Bid) => {
+    try {
+      await bidApi.delete(bid.id);
+      setDeleteTarget(null);
+      fetchData();
+    } catch {
+      alert('삭제에 실패했습니다.');
     }
   };
 
@@ -182,12 +194,21 @@ export default function BidList() {
                       <span>인력 {bid.personnel_count}명</span>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/bids/${bid.id}/workspace`); }}
-                    className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
-                  >
-                    작업하기
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/bids/${bid.id}/workspace`); }}
+                      className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      작업하기
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(bid); }}
+                      className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      title="삭제"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -196,6 +217,17 @@ export default function BidList() {
       )}
 
       <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+
+      {/* 삭제 확인 */}
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
+        title="입찰 삭제"
+        message={`"${deleteTarget?.bid_name}" 입찰을 삭제하시겠습니까? 포함된 장표와 파일이 모두 삭제됩니다.`}
+        confirmLabel="삭제"
+        variant="danger"
+      />
 
       {/* 입찰 생성 모달 */}
       <CreateBidModal

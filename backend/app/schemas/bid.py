@@ -211,6 +211,53 @@ class FillResponse(BaseModel):
     remaining: list[str]  # 치환되지 않은 변수 목록
 
 
+# ─── 회사 정보 스키마 ───
+
+
+class CompanyInfoUpdate(BaseModel):
+    """회사 정보 수정 요청 (전체 또는 부분 업데이트)"""
+
+    company_name: str | None = None
+    business_number: str | None = None
+    corporate_number: str | None = None
+    representative: str | None = None
+    representative_birth: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    fax: str | None = None
+    email: str | None = None
+    website: str | None = None
+    business_type: str | None = None
+    business_category: str | None = None
+    establishment_date: str | None = None
+    capital: str | None = None
+    employee_count: str | None = None
+
+
+class CompanyInfoResponse(BaseModel):
+    """회사 정보 응답"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_name: str | None = None
+    business_number: str | None = None
+    corporate_number: str | None = None
+    representative: str | None = None
+    representative_birth: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    fax: str | None = None
+    email: str | None = None
+    website: str | None = None
+    business_type: str | None = None
+    business_category: str | None = None
+    establishment_date: str | None = None
+    capital: str | None = None
+    employee_count: str | None = None
+    updated_at: datetime | None = None
+
+
 # ─── AI 서비스 스키마 ───
 
 

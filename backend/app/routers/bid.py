@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models.bid import Bid, BidPage, BidPersonnel
+from app.models.bid import Bid, BidPage, BidPersonnel, CompanyInfo
 from app.models.personnel import Personnel
 from app.schemas.bid import (
     BidCreate,
@@ -28,7 +29,7 @@ from app.schemas.bid import (
     FillRequest,
     FillResponse,
 )
-from app.services.fill_service import fill_personnel, get_selected_project_ids
+from app.services.fill_service import fill_company, fill_personnel, get_selected_project_ids
 
 logger = logging.getLogger(__name__)
 
@@ -309,6 +310,31 @@ async def get_page(bid_id: int, page_id: int, db: Session = Depends(get_db)):
     return BidPageResponse.model_validate(page)
 
 
+@router.get("/{bid_id}/pages/{page_id}/pdf-preview")
+async def preview_page_pdf(bid_id: int, page_id: int, db: Session = Depends(get_db)):
+    """PDF 장표의 원본 파일을 반환 (브라우저 내장 뷰어로 미리보기)"""
+    _get_bid_or_404(db, bid_id)
+    page = (
+        db.query(BidPage)
+        .filter(BidPage.bid_id == bid_id, BidPage.id == page_id)
+        .first()
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="장표를 찾을 수 없습니다.")
+    if page.page_type != "pdf" or not page.pdf_file_path:
+        raise HTTPException(status_code=400, detail="PDF 파일이 없는 장표입니다.")
+
+    pdf_path = Path(page.pdf_file_path)
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="PDF 파일을 찾을 수 없습니다.")
+
+    return Response(
+        content=pdf_path.read_bytes(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
+
+
 @router.put("/{bid_id}/pages/{page_id}", response_model=BidPageResponse)
 async def update_page(
     bid_id: int, page_id: int, data: BidPageUpdate, db: Session = Depends(get_db)
@@ -406,13 +432,24 @@ async def fill_page_personnel(
     # selected_projects 파싱
     selected_project_ids = get_selected_project_ids(bp)
 
-    # 자동 채움 실행
+    # 자동 채움 실행 (인력 데이터)
     result = fill_personnel(
         html_content=page.html_content,
         personnel=person,
         bid_personnel=bp,
         selected_project_ids=selected_project_ids,
     )
+
+    # 회사 정보 자동 채움 (인력 채움 결과에 이어서 적용)
+    company_info = db.query(CompanyInfo).first()
+    if company_info:
+        company_result = fill_company(
+            html_content=result["html_content"],
+            company_info=company_info,
+        )
+        result["html_content"] = company_result["html_content"]
+        result["filled_count"] += company_result["filled_count"]
+        result["remaining"] = company_result["remaining"]
 
     # save=true 이면 채움 결과를 DB에 저장
     if data.save:

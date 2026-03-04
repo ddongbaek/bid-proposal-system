@@ -22,11 +22,12 @@ import type {
   BidPersonnel,
   BidPersonnelCreate,
   BidStatus,
+  CompanyInfo,
 } from '../types';
 
 // Axios 인스턴스 생성
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -110,7 +111,7 @@ export const certificationApi = {
 
   /** 자격증 파일 다운로드 URL */
   getFileUrl: (personnelId: number, certId: number): string => {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
     return `${baseURL}/personnel/${personnelId}/certifications/${certId}/file`;
   },
 };
@@ -328,7 +329,7 @@ export const pdfApi = {
 
   /** PDF 다운로드 URL (이미 생성된 파일 또는 즉시 생성) */
   getDownloadUrl: (bidId: number): string => {
-    const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+    const baseURL = import.meta.env.VITE_API_BASE_URL || '/api';
     return `${baseURL}/pdf/download/${bidId}`;
   },
 };
@@ -391,6 +392,38 @@ export const hwpApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
       timeout: 120000,
     });
+    return response.data;
+  },
+
+  /** HWP→페이지 분리 (HWP→HTML→PDF→개별 페이지로 입찰에 추가) */
+  toPages: async (file: File, bidId: number): Promise<{
+    pages: { id: number; page_name: string; page_number: number; sort_order: number }[];
+    total_pages: number;
+    message: string;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bid_id', String(bidId));
+    const response = await api.post('/hwp/to-pages', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000, // HWP→HTML→PDF 변환에 시간 소요
+    });
+    return response.data;
+  },
+};
+
+// ===== 회사 기본정보 API =====
+
+export const companyApi = {
+  /** 회사 정보 조회 */
+  get: async (): Promise<CompanyInfo> => {
+    const response = await api.get('/company/');
+    return response.data;
+  },
+
+  /** 회사 정보 수정 */
+  update: async (data: Partial<CompanyInfo>): Promise<CompanyInfo> => {
+    const response = await api.put('/company/', data);
     return response.data;
   },
 };

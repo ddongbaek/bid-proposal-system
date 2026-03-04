@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import create_tables
 from app.middleware.ip_filter import IPFilterMiddleware
-from app.routers import ai, bid, hwp, library, pdf, personnel
+from app.routers import ai, bid, company, hwp, library, pdf, personnel
 import app.models  # noqa: F401 - register models with Base.metadata
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ app.include_router(personnel.router, prefix="/api/personnel", tags=["personnel"]
 app.include_router(ai.router, prefix="/api/ai", tags=["ai"])
 app.include_router(library.router, prefix="/api/library", tags=["library"])
 app.include_router(bid.router, prefix="/api/bids", tags=["bids"])
+app.include_router(company.router, prefix="/api/company", tags=["company"])
 app.include_router(pdf.router, prefix="/api/pdf", tags=["pdf"])
 app.include_router(hwp.router, prefix="/api/hwp", tags=["hwp"])
 

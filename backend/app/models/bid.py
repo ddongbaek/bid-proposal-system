@@ -149,3 +149,29 @@ class PageLibrary(Base):
     __table_args__ = (
         Index("idx_library_category", "category"),
     )
+
+
+class CompanyInfo(Base):
+    """회사 기본정보 (단일 행)"""
+
+    __tablename__ = "company_info"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    company_name: Mapped[str | None] = mapped_column(String, nullable=True)  # 회사명/상호
+    business_number: Mapped[str | None] = mapped_column(String, nullable=True)  # 사업자등록번호
+    corporate_number: Mapped[str | None] = mapped_column(String, nullable=True)  # 법인등록번호
+    representative: Mapped[str | None] = mapped_column(String, nullable=True)  # 대표자
+    representative_birth: Mapped[str | None] = mapped_column(String, nullable=True)  # 대표자 생년월일
+    address: Mapped[str | None] = mapped_column(String, nullable=True)  # 주소
+    phone: Mapped[str | None] = mapped_column(String, nullable=True)  # 전화번호
+    fax: Mapped[str | None] = mapped_column(String, nullable=True)  # 팩스
+    email: Mapped[str | None] = mapped_column(String, nullable=True)  # 이메일
+    website: Mapped[str | None] = mapped_column(String, nullable=True)  # 홈페이지
+    business_type: Mapped[str | None] = mapped_column(String, nullable=True)  # 업종
+    business_category: Mapped[str | None] = mapped_column(String, nullable=True)  # 업태
+    establishment_date: Mapped[str | None] = mapped_column(String, nullable=True)  # 설립일
+    capital: Mapped[str | None] = mapped_column(String, nullable=True)  # 자본금
+    employee_count: Mapped[str | None] = mapped_column(String, nullable=True)  # 상시근로자수
+    updated_at: Mapped[datetime] = mapped_column(
+        default=func.now(), server_default=func.now(), onupdate=func.now()
+    )

@@ -280,3 +280,25 @@ export interface PaginationParams {
   page: number;
   size: number;
 }
+
+// ===== 회사 기본정보 =====
+
+export interface CompanyInfo {
+  id: number;
+  company_name: string | null;
+  business_number: string | null;
+  corporate_number: string | null;
+  representative: string | null;
+  representative_birth: string | null;
+  address: string | null;
+  phone: string | null;
+  fax: string | null;
+  email: string | null;
+  website: string | null;
+  business_type: string | null;
+  business_category: string | null;
+  establishment_date: string | null;
+  capital: string | null;
+  employee_count: string | null;
+  updated_at: string;
+}

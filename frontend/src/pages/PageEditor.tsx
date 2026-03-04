@@ -456,10 +456,10 @@ export default function PageEditor() {
         </div>
       </div>
 
-      {/* 3분할 레이아웃 */}
+      {/* 3분할 레이아웃: AI(w-64) | 코드(w-[420px]) | 미리보기(flex-1, 가장 넓게) */}
       <div className="flex-1 flex min-h-0">
         {/* 좌측: AI 채팅 패널 */}
-        <div className="w-72 flex-shrink-0 border-r border-gray-200">
+        <div className="w-64 flex-shrink-0 border-r border-gray-200">
           <AiChatPanel
             messages={chatMessages}
             isLoading={isAiLoading}
@@ -469,8 +469,8 @@ export default function PageEditor() {
           />
         </div>
 
-        {/* 중앙: 코드 에디터 */}
-        <div className="flex-1 min-w-0">
+        {/* 중앙: 코드 에디터 (좁게) */}
+        <div className="w-[420px] flex-shrink-0 min-w-0">
           <CodeEditorPanel
             htmlContent={htmlContent}
             cssContent={cssContent}
@@ -481,8 +481,8 @@ export default function PageEditor() {
           />
         </div>
 
-        {/* 우측: 미리보기 */}
-        <div className="w-96 flex-shrink-0 border-l border-gray-200">
+        {/* 우측: 미리보기 (가장 넓게) */}
+        <div className="flex-1 border-l border-gray-200">
           <PreviewPanel
             htmlContent={previewHtml}
             cssContent={previewCss}

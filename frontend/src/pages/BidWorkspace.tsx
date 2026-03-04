@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   DndContext,
@@ -31,14 +31,22 @@ import {
   Eye,
   ArrowLeft,
   UserCheck,
+  FileUp,
+  ZoomIn,
+  ZoomOut,
+  RotateCcw,
+  FormInput,
+  Building2,
 } from 'lucide-react';
-import { bidApi, libraryApi, personnelApi, pdfApi } from '../services/api';
+import axios from 'axios';
+import { bidApi, libraryApi, personnelApi, pdfApi, hwpApi, companyApi } from '../services/api';
 import type {
   BidDetail,
   BidPage,
   BidPersonnel,
   PageLibrarySummary,
   PersonnelSummary,
+  CompanyInfo,
 } from '../types';
 import Modal from '../components/common/Modal';
 
@@ -46,15 +54,19 @@ import Modal from '../components/common/Modal';
 function SortablePageCard({
   page,
   isSelected,
+  isChecked,
   onSelect,
   onDelete,
   onEdit,
+  onCheckToggle,
 }: {
   page: BidPage;
   isSelected: boolean;
+  isChecked: boolean;
   onSelect: () => void;
   onDelete: () => void;
   onEdit: () => void;
+  onCheckToggle: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: page.id });
@@ -76,6 +88,13 @@ function SortablePageCard({
           : 'border-gray-200 bg-white hover:bg-gray-50'
       }`}
     >
+      <input
+        type="checkbox"
+        checked={isChecked}
+        onChange={(e) => { e.stopPropagation(); onCheckToggle(); }}
+        onClick={(e) => e.stopPropagation()}
+        className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 flex-shrink-0"
+      />
       <button {...attributes} {...listeners} className="cursor-grab text-gray-400 hover:text-gray-600">
         <GripVertical size={16} />
       </button>
@@ -144,11 +163,31 @@ export default function BidWorkspace() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfPageName, setPdfPageName] = useState('');
 
+  // HWP 업로드
+  const [hwpUploading, setHwpUploading] = useState(false);
+
+  // 체크박스 선택 (부분 삭제용)
+  const [checkedPageIds, setCheckedPageIds] = useState<Set<number>>(new Set());
+
+  // 미리보기 스케일
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [previewScale, setPreviewScale] = useState(0.5);
+  const [previewContainerWidth, setPreviewContainerWidth] = useState(0);
+  const A4_WIDTH = 794;
+  const A4_HEIGHT = 1123;
+
+  // 플레이스홀더 입력폼
+  const [showPlaceholderForm, setShowPlaceholderForm] = useState(false);
+  const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({});
+
   // 자동 채움
   const [filledHtml, setFilledHtml] = useState<string | null>(null);
   const [fillPersonnelId, setFillPersonnelId] = useState<number | null>(null);
   const [filling, setFilling] = useState(false);
   const [fillStats, setFillStats] = useState<{ filled: number; remaining: string[] } | null>(null);
+
+  // 회사 기본정보
+  const [companyInfo, setCompanyInfo] = useState<CompanyInfo | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -160,19 +199,89 @@ export default function BidWorkspace() {
     try {
       const data = await bidApi.getById(numericBidId);
       setBid(data);
-      if (data.pages.length > 0 && !selectedPageId) {
-        setSelectedPageId(data.pages[0].id);
-      }
+      setSelectedPageId((prev) => {
+        // 이전 선택이 있고 여전히 존재하면 유지, 없으면 첫 번째
+        if (prev && data.pages.some((p: BidPage) => p.id === prev)) return prev;
+        return data.pages.length > 0 ? data.pages[0].id : null;
+      });
     } catch {
       setError('입찰 정보를 불러올 수 없습니다.');
     } finally {
       setLoading(false);
     }
-  }, [numericBidId, selectedPageId]);
+  }, [numericBidId]);
 
   useEffect(() => {
     loadBid();
   }, [loadBid]);
+
+  // 회사 정보 로드
+  useEffect(() => {
+    companyApi.get().then(setCompanyInfo).catch(() => {});
+  }, []);
+
+  // 미리보기 컨테이너 크기 감지 → 자동 스케일
+  useEffect(() => {
+    const el = previewContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = entry.contentRect.width;
+        const h = entry.contentRect.height;
+        setPreviewContainerWidth(w);
+        // 가로/세로 중 작은 비율에 맞춤 (여백 40px)
+        const scaleW = (w - 40) / A4_WIDTH;
+        const scaleH = (h - 40) / A4_HEIGHT;
+        setPreviewScale(Math.max(Math.min(scaleW, scaleH, 1.0), 0.2));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // 현재 선택된 장표의 HTML
+  const selectedPage = bid?.pages.find((p) => p.id === selectedPageId) || null;
+
+  // 플레이스홀더 목록 추출
+  const placeholders = useMemo(() => {
+    const html = filledHtml || selectedPage?.html_content || '';
+    const matches = html.match(/\{\{(\w+)\}\}/g);
+    if (!matches) return [];
+    // 중복 제거
+    const unique = [...new Set(matches.map((m: string) => m.replace(/\{\{|\}\}/g, '')))];
+    return unique;
+  }, [selectedPage?.html_content, filledHtml]);
+
+  // 플레이스홀더 값 적용
+  const applyPlaceholders = async () => {
+    if (!selectedPage) return;
+    let html = filledHtml || selectedPage.html_content || '';
+    let count = 0;
+    for (const [key, value] of Object.entries(placeholderValues)) {
+      if (!value) continue;
+      const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+      const before = html;
+      html = html.replace(pattern, value);
+      if (html !== before) count++;
+    }
+    if (count > 0) {
+      setFilledHtml(html);
+    }
+  };
+
+  // 플레이스홀더 값 적용 후 DB 저장
+  const savePlaceholderFilled = async () => {
+    if (!selectedPage || !filledHtml) return;
+    try {
+      await bidApi.updatePage(numericBidId, selectedPage.id, {
+        html_content: filledHtml,
+      });
+      loadBid();
+      alert('저장되었습니다.');
+    } catch {
+      alert('저장에 실패했습니다.');
+    }
+  };
 
   // 드래그앤드롭
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -225,6 +334,31 @@ export default function BidWorkspace() {
     }
   };
 
+  // HWP 페이지 분리 업로드
+  const handleHwpUpload = async () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.hwp';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      setHwpUploading(true);
+      try {
+        const result = await hwpApi.toPages(file, numericBidId);
+        alert(result.message);
+        loadBid();
+      } catch (err) {
+        const msg = axios.isAxiosError(err) && err.response?.data?.detail
+          ? err.response.data.detail
+          : err instanceof Error ? err.message : 'HWP 변환에 실패했습니다.';
+        alert(`HWP 변환 실패: ${msg}`);
+      } finally {
+        setHwpUploading(false);
+      }
+    };
+    input.click();
+  };
+
   // 인력 배정
   const handleAddPersonnel = async (personnelId: number) => {
     try {
@@ -256,6 +390,59 @@ export default function BidWorkspace() {
       loadBid();
     } catch {
       alert('장표 삭제에 실패했습니다.');
+    }
+  };
+
+  // 장표 전체 삭제
+  const handleDeleteAllPages = async () => {
+    if (!bid || bid.pages.length === 0) return;
+    if (!confirm(`장표 ${bid.pages.length}개를 모두 삭제하시겠습니까?`)) return;
+    try {
+      await Promise.all(bid.pages.map((p) => bidApi.deletePage(numericBidId, p.id)));
+      setSelectedPageId(null);
+      setCheckedPageIds(new Set());
+      loadBid();
+    } catch {
+      alert('일부 장표 삭제에 실패했습니다.');
+      loadBid();
+    }
+  };
+
+  // 선택된 장표 삭제
+  const handleDeleteChecked = async () => {
+    if (checkedPageIds.size === 0) return;
+    if (!confirm(`선택한 ${checkedPageIds.size}개 장표를 삭제하시겠습니까?`)) return;
+    try {
+      await Promise.all(
+        Array.from(checkedPageIds).map((id) => bidApi.deletePage(numericBidId, id))
+      );
+      if (selectedPageId && checkedPageIds.has(selectedPageId)) setSelectedPageId(null);
+      setCheckedPageIds(new Set());
+      loadBid();
+    } catch {
+      alert('일부 장표 삭제에 실패했습니다.');
+      setCheckedPageIds(new Set());
+      loadBid();
+    }
+  };
+
+  // 체크 토글
+  const toggleCheck = (pageId: number) => {
+    setCheckedPageIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(pageId)) next.delete(pageId);
+      else next.add(pageId);
+      return next;
+    });
+  };
+
+  // 전체 선택/해제
+  const toggleCheckAll = () => {
+    if (!bid) return;
+    if (checkedPageIds.size === bid.pages.length) {
+      setCheckedPageIds(new Set());
+    } else {
+      setCheckedPageIds(new Set(bid.pages.map((p) => p.id)));
     }
   };
 
@@ -320,6 +507,31 @@ export default function BidWorkspace() {
     setFillStats(null);
   };
 
+  // 회사정보 자동 채움 (클라이언트 사이드)
+  const handleFillCompany = () => {
+    if (!selectedPage || !companyInfo) return;
+    let html = filledHtml || selectedPage.html_content || '';
+    const fields: (keyof CompanyInfo)[] = [
+      'company_name', 'business_number', 'corporate_number',
+      'representative', 'representative_birth', 'address',
+      'phone', 'fax', 'email', 'website',
+      'business_type', 'business_category', 'establishment_date',
+      'capital', 'employee_count',
+    ];
+    let count = 0;
+    for (const field of fields) {
+      const value = companyInfo[field];
+      if (value == null) continue;
+      const pattern = new RegExp(`\\{\\{${field}\\}\\}`, 'g');
+      const before = html;
+      html = html.replace(pattern, String(value));
+      if (html !== before) count++;
+    }
+    if (count > 0) {
+      setFilledHtml(html);
+    }
+  };
+
   // 라이브러리 모달 열기
   const openLibraryModal = async () => {
     setShowLibraryModal(true);
@@ -348,14 +560,13 @@ export default function BidWorkspace() {
     }
   };
 
-  // 선택된 장표
-  const selectedPage = bid?.pages.find((p) => p.id === selectedPageId) || null;
-
-  // 선택 장표 변경 시 자동 채움 상태 초기화
+  // 선택 장표 변경 시 자동 채움/플레이스홀더 상태 초기화
   useEffect(() => {
     setFilledHtml(null);
     setFillStats(null);
     setFillPersonnelId(null);
+    setPlaceholderValues({});
+    setShowPlaceholderForm(false);
   }, [selectedPageId]);
 
   if (loading) {
@@ -441,11 +652,48 @@ export default function BidWorkspace() {
                 <Upload size={14} />
                 PDF
               </button>
+              <button
+                onClick={handleHwpUpload}
+                disabled={hwpUploading}
+                className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-teal-50 text-teal-600 rounded-lg hover:bg-teal-100 disabled:opacity-50 transition-colors"
+              >
+                {hwpUploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+                {hwpUploading ? '변환중...' : 'HWP'}
+              </button>
             </div>
           </div>
 
           {/* 장표 목록 (드래그앤드롭) */}
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {bid.pages.length > 0 && (
+              <div className="flex items-center justify-between mb-1">
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={bid.pages.length > 0 && checkedPageIds.size === bid.pages.length}
+                    onChange={toggleCheckAll}
+                    className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600"
+                  />
+                  {bid.pages.length}개 장표
+                </label>
+                <div className="flex items-center gap-2">
+                  {checkedPageIds.size > 0 && (
+                    <button
+                      onClick={handleDeleteChecked}
+                      className="text-xs text-red-500 hover:text-red-700 font-medium"
+                    >
+                      선택 삭제 ({checkedPageIds.size})
+                    </button>
+                  )}
+                  <button
+                    onClick={handleDeleteAllPages}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >
+                    전체 삭제
+                  </button>
+                </div>
+              </div>
+            )}
             {bid.pages.length === 0 ? (
               <div className="text-center py-8 text-gray-400 text-sm">
                 <FileText className="mx-auto mb-2" size={32} />
@@ -468,9 +716,11 @@ export default function BidWorkspace() {
                         key={page.id}
                         page={page}
                         isSelected={page.id === selectedPageId}
+                        isChecked={checkedPageIds.has(page.id)}
                         onSelect={() => setSelectedPageId(page.id)}
                         onDelete={() => handleDeletePage(page.id)}
                         onEdit={() => handleEditPage(page)}
+                        onCheckToggle={() => toggleCheck(page.id)}
                       />
                     ))}
                 </SortableContext>
@@ -517,59 +767,106 @@ export default function BidWorkspace() {
           </div>
         </div>
 
-        {/* 우측: 미리보기 */}
+        {/* 우측: 미리보기 + 입력폼 */}
         <div className="flex-1 bg-gray-100 flex flex-col">
           {selectedPage ? (
             selectedPage.page_type === 'html' && selectedPage.html_content ? (
               <>
-                {/* 미리보기 헤더 */}
-                <div className="flex items-center gap-2 px-4 py-2 bg-white border-b text-sm text-gray-600">
-                  <Eye size={14} />
-                  {selectedPage.page_name || '미리보기'}
-                  {filledHtml && (
-                    <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
-                      자동 채움 적용됨
-                    </span>
-                  )}
+                {/* 미리보기 헤더 + 줌 컨트롤 */}
+                <div className="flex items-center justify-between px-4 py-2 bg-white border-b">
+                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                    <Eye size={14} />
+                    {selectedPage.page_name || '미리보기'}
+                    {filledHtml && (
+                      <span className="ml-1 px-2 py-0.5 bg-green-100 text-green-700 text-xs rounded-full">
+                        채움 적용
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {placeholders.length > 0 && (
+                      <button
+                        onClick={() => setShowPlaceholderForm(!showPlaceholderForm)}
+                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                          showPlaceholderForm ? 'bg-blue-100 text-blue-700' : 'text-gray-500 hover:bg-gray-100'
+                        }`}
+                        title="입력폼"
+                      >
+                        <FormInput size={14} />
+                        입력폼 ({placeholders.length})
+                      </button>
+                    )}
+                    <div className="w-px h-4 bg-gray-200 mx-1" />
+                    <button onClick={() => setPreviewScale((s) => Math.max(s - 0.1, 0.2))} className="p-1 text-gray-500 hover:bg-gray-100 rounded" title="축소">
+                      <ZoomOut size={14} />
+                    </button>
+                    <span className="text-xs text-gray-500 w-10 text-center">{Math.round(previewScale * 100)}%</span>
+                    <button onClick={() => setPreviewScale((s) => Math.min(s + 0.1, 1.5))} className="p-1 text-gray-500 hover:bg-gray-100 rounded" title="확대">
+                      <ZoomIn size={14} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        const el = previewContainerRef.current;
+                        if (el) {
+                          const scaleW = (el.clientWidth - 40) / A4_WIDTH;
+                          const scaleH = (el.clientHeight - 40) / A4_HEIGHT;
+                          setPreviewScale(Math.max(Math.min(scaleW, scaleH, 1.0), 0.2));
+                        }
+                      }}
+                      className="p-1 text-gray-500 hover:bg-gray-100 rounded" title="맞춤"
+                    >
+                      <RotateCcw size={14} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* 자동 채움 툴바 */}
-                {bid.personnel.length > 0 && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 border-b">
-                    <UserCheck size={14} className="text-gray-500 flex-shrink-0" />
-                    <select
-                      value={fillPersonnelId ?? ''}
-                      onChange={(e) => setFillPersonnelId(e.target.value ? Number(e.target.value) : null)}
-                      className="px-2 py-1 text-sm border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">인력 선택...</option>
-                      {bid.personnel.map((bp: BidPersonnel) => (
-                        <option key={bp.personnel_id} value={bp.personnel_id}>
-                          {bp.personnel_name}
-                          {bp.role_in_bid ? ` (${bp.role_in_bid})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={handleFillPersonnel}
-                      disabled={!fillPersonnelId || filling}
-                      className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {filling ? <Loader2 size={14} className="animate-spin" /> : null}
-                      채우기
-                    </button>
+                {(bid.personnel.length > 0 || companyInfo) && (
+                  <div className="flex items-center gap-2 px-4 py-1.5 bg-gray-50 border-b">
+                    {bid.personnel.length > 0 && (
+                      <>
+                        <UserCheck size={14} className="text-gray-500 flex-shrink-0" />
+                        <select
+                          value={fillPersonnelId ?? ''}
+                          onChange={(e) => setFillPersonnelId(e.target.value ? Number(e.target.value) : null)}
+                          className="px-2 py-1 text-xs border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        >
+                          <option value="">인력 선택...</option>
+                          {bid.personnel.map((bp: BidPersonnel) => (
+                            <option key={bp.personnel_id} value={bp.personnel_id}>
+                              {bp.personnel_name}
+                              {bp.role_in_bid ? ` (${bp.role_in_bid})` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={handleFillPersonnel}
+                          disabled={!fillPersonnelId || filling}
+                          className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-40 transition-colors"
+                        >
+                          {filling ? <Loader2 size={12} className="animate-spin" /> : '채우기'}
+                        </button>
+                      </>
+                    )}
+                    {companyInfo && (
+                      <>
+                        {bid.personnel.length > 0 && <div className="w-px h-4 bg-gray-300" />}
+                        <button
+                          onClick={handleFillCompany}
+                          className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                        >
+                          <Building2 size={12} />
+                          회사정보
+                        </button>
+                      </>
+                    )}
                     {filledHtml && (
                       <>
-                        <button
-                          onClick={handleSaveFilled}
-                          className="flex items-center gap-1 px-3 py-1 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                        >
+                        <div className="w-px h-4 bg-gray-300" />
+                        <button onClick={handleSaveFilled} className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
                           저장
                         </button>
-                        <button
-                          onClick={handleResetFilled}
-                          className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                        >
+                        <button onClick={handleResetFilled} className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors">
                           원본
                         </button>
                       </>
@@ -585,12 +882,95 @@ export default function BidWorkspace() {
                   </div>
                 )}
 
-                {/* iframe 미리보기 */}
+                {/* 미리보기 + 플레이스홀더 입력폼 */}
+                <div className="flex-1 flex overflow-hidden">
+                  {/* A4 미리보기 (스케일 적용) */}
+                  <div
+                    ref={previewContainerRef}
+                    className="flex-1 overflow-auto"
+                    style={{ backgroundColor: '#e5e7eb', padding: 20 }}
+                  >
+                    <div
+                      style={{
+                        width: A4_WIDTH * previewScale,
+                        height: A4_HEIGHT * previewScale,
+                        margin: '0 auto',
+                      }}
+                    >
+                      <iframe
+                        srcDoc={(() => {
+                          const html = filledHtml || selectedPage.html_content || '';
+                          const centerCss = '<style>html,body{background:#fff!important;margin:0;padding:15mm 15mm;width:210mm;min-height:297mm;box-sizing:border-box}.TableControl{margin:0 auto!important}</style>';
+                          if (html.includes('</head>')) {
+                            return html.replace('</head>', centerCss + '</head>');
+                          }
+                          return centerCss + html;
+                        })()}
+                        style={{
+                          width: A4_WIDTH,
+                          height: A4_HEIGHT,
+                          border: 'none',
+                          background: 'white',
+                          boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                          transform: `scale(${previewScale})`,
+                          transformOrigin: 'top left',
+                        }}
+                        title="장표 미리보기"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 플레이스홀더 입력폼 사이드패널 */}
+                  {showPlaceholderForm && placeholders.length > 0 && (
+                    <div className="w-72 border-l bg-white flex flex-col overflow-hidden">
+                      <div className="px-3 py-2 border-b bg-gray-50 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-gray-700">빈칸 입력</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={applyPlaceholders}
+                            className="px-2 py-0.5 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                          >
+                            적용
+                          </button>
+                          {filledHtml && (
+                            <button
+                              onClick={savePlaceholderFilled}
+                              className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                            >
+                              저장
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        {placeholders.map((name) => (
+                          <div key={name}>
+                            <label className="block text-xs text-gray-600 mb-0.5">{`{{${name}}}`}</label>
+                            <input
+                              type="text"
+                              value={placeholderValues[name] || ''}
+                              onChange={(e) => setPlaceholderValues((prev) => ({ ...prev, [name]: e.target.value }))}
+                              placeholder={name}
+                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : selectedPage.page_type === 'pdf' ? (
+              <>
+                <div className="flex items-center gap-2 px-4 py-2 bg-white border-b text-sm text-gray-600">
+                  <Eye size={14} />
+                  {selectedPage.page_name || 'PDF 미리보기'}
+                </div>
                 <div className="flex-1">
                   <iframe
-                    srcDoc={filledHtml || selectedPage.html_content}
-                    className="w-full h-full bg-white"
-                    title="장표 미리보기"
+                    src={`/api/bids/${numericBidId}/pages/${selectedPage.id}/pdf-preview`}
+                    className="w-full h-full"
+                    title="PDF 미리보기"
                   />
                 </div>
               </>
@@ -599,7 +979,7 @@ export default function BidWorkspace() {
                 <div className="text-center text-gray-500">
                   <FileText size={48} className="mx-auto mb-3 text-gray-300" />
                   <p className="font-medium">{selectedPage.page_name}</p>
-                  <p className="text-sm mt-1">PDF 파일은 미리보기가 지원되지 않습니다.</p>
+                  <p className="text-sm mt-1">미리보기를 지원하지 않는 장표입니다.</p>
                 </div>
               </div>
             )
