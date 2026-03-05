@@ -304,14 +304,7 @@ def hwp_to_pages(
         head_end = html_content.find("</head>")
         head_part = html_content[:head_end + len("</head>")] if head_end != -1 else ""
 
-        # 테이블/서식 중앙정렬 + 배경 흰색 CSS 주입
-        center_css = """<style type="text/css">
-/* 서식 분리 시 자동 보정 */
-.TableControl { margin: 0 auto !important; }
-html, body { background-color: #fff !important; padding: 15mm 20mm; }
-</style>"""
-        if head_part:
-            head_part = head_part.replace("</head>", center_css + "\n</head>")
+        # A4 레이아웃은 _FONT_NORMALIZE_CSS에서 이미 포함됨 (convert_hwp_to_html)
 
         for sec in sections:
             section_html = html_content[sec["start"]:sec["end"]].strip()

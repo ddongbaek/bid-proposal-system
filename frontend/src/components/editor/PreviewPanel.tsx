@@ -47,18 +47,12 @@ export default function PreviewPanel({
     const cssBlock = cssContent ? `<style>\n${cssContent}\n</style>` : '';
 
     // htmlContent가 <!DOCTYPE> 또는 <html>로 시작하면 그대로 사용
+    // (백엔드 변환 시 A4 레이아웃 CSS가 이미 포함됨)
     if (htmlContent.trim().toLowerCase().startsWith('<!doctype') || htmlContent.trim().toLowerCase().startsWith('<html')) {
-      // A4 레이아웃 보정 CSS (pyhwp 변환 HTML용)
-      const a4FixCss = `<style type="text/css">
-        html, body { background-color: #fff !important; margin: 0; padding: 0; }
-        body { padding: 15mm 15mm; width: 210mm; min-height: 297mm; box-sizing: border-box; }
-        .Paper { margin: 0 auto; }
-      </style>`;
-      const insertCss = a4FixCss + (cssContent ? cssBlock : '');
-      if (htmlContent.includes('</head>')) {
-        return htmlContent.replace('</head>', `${insertCss}\n</head>`);
+      if (cssContent && htmlContent.includes('</head>')) {
+        return htmlContent.replace('</head>', `${cssBlock}\n</head>`);
       }
-      return insertCss + htmlContent;
+      return cssContent ? cssBlock + htmlContent : htmlContent;
     }
 
     // 부분 HTML이면 전체 문서로 래핑

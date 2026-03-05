@@ -221,23 +221,26 @@ export default function BidWorkspace() {
   }, []);
 
   // 미리보기 컨테이너 크기 감지 → 자동 스케일
+  // selectedPageId를 deps에 넣어야 조건부 렌더링 후 ref가 생길 때 observer 연결됨
   useEffect(() => {
     const el = previewContainerRef.current;
     if (!el) return;
+    const updateScale = (w: number) => {
+      setPreviewContainerWidth(w);
+      // 가로 폭에 맞춤 (세로는 스크롤), 여백 40px
+      const scaleW = (w - 40) / A4_WIDTH;
+      setPreviewScale(Math.max(Math.min(scaleW, 1.0), 0.3));
+    };
+    // 초기 크기 즉시 반영
+    updateScale(el.clientWidth);
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        const w = entry.contentRect.width;
-        const h = entry.contentRect.height;
-        setPreviewContainerWidth(w);
-        // 가로/세로 중 작은 비율에 맞춤 (여백 40px)
-        const scaleW = (w - 40) / A4_WIDTH;
-        const scaleH = (h - 40) / A4_HEIGHT;
-        setPreviewScale(Math.max(Math.min(scaleW, scaleH, 1.0), 0.2));
+        updateScale(entry.contentRect.width);
       }
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [selectedPageId]);
 
   // 현재 선택된 장표의 HTML
   const selectedPage = bid?.pages.find((p) => p.id === selectedPageId) || null;
@@ -809,8 +812,7 @@ export default function BidWorkspace() {
                         const el = previewContainerRef.current;
                         if (el) {
                           const scaleW = (el.clientWidth - 40) / A4_WIDTH;
-                          const scaleH = (el.clientHeight - 40) / A4_HEIGHT;
-                          setPreviewScale(Math.max(Math.min(scaleW, scaleH, 1.0), 0.2));
+                          setPreviewScale(Math.max(Math.min(scaleW, 1.0), 0.3));
                         }
                       }}
                       className="p-1 text-gray-500 hover:bg-gray-100 rounded" title="맞춤"
@@ -900,11 +902,15 @@ export default function BidWorkspace() {
                       <iframe
                         srcDoc={(() => {
                           const html = filledHtml || selectedPage.html_content || '';
-                          const centerCss = '<style>html,body{background:#fff!important;margin:0;padding:15mm 15mm;width:210mm;min-height:297mm;box-sizing:border-box}.TableControl{margin:0 auto!important}</style>';
+                          // 항상 최종 A4 레이아웃 CSS 주입 (기존/신규 장표 모두 대응)
+                          const layoutCss = '<style>body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style>';
                           if (html.includes('</head>')) {
-                            return html.replace('</head>', centerCss + '</head>');
+                            return html.replace('</head>', layoutCss + '</head>');
                           }
-                          return centerCss + html;
+                          if (html.includes('<body')) {
+                            return layoutCss + html;
+                          }
+                          return html;
                         })()}
                         style={{
                           width: A4_WIDTH,

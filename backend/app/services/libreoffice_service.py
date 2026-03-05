@@ -245,7 +245,7 @@ def convert_hwp_to_html(hwp_content: bytes, filename: str) -> str:
         return html_text
 
 
-# HWP 폰트 → 웹 안전 폰트 매핑 + 레이아웃 보정
+# HWP 폰트 → 웹 안전 폰트 매핑 + A4 레이아웃 보정
 _FONT_NORMALIZE_CSS = """
 <style type="text/css">
 /* === 폰트 정규화: HWP 폰트를 웹 안전 폰트로 매핑 === */
@@ -265,19 +265,39 @@ _FONT_NORMALIZE_CSS = """
 @font-face { font-family: "HY헤드라인M"; src: local("HY헤드라인M"), local("HYHeadLine"); }
 @font-face { font-family: "HY울릉도M"; src: local("HY울릉도M"); }
 
-/* 전역 폰트 fallback (원본 폰트 없을 때만 적용) + 배경 흰색 강제 */
+/* === A4 레이아웃: 변환 즉시 깔끔한 문서 형태 === */
 html, body {
+  margin: 0;
+  padding: 0;
+  background-color: #fff !important;
   font-family: "맑은 고딕", "Malgun Gothic", "Nanum Gothic", "나눔고딕",
                "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  background-color: #fff !important;
 }
 
-/* TableControl: 테이블 래퍼 div (원본 <p><span> → <div>로 변환됨) */
+body {
+  width: 210mm;
+  min-height: 297mm;
+  box-sizing: border-box;
+  padding: 15mm 20mm;
+  margin: 0 auto;
+}
+
+/* .Paper: pyhwp가 생성하는 페이지 래퍼 — 원본 너비 무시하고 body 폭에 맞춤 */
+.Paper {
+  background-color: #fff;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* TableControl: 테이블 래퍼 div — body padding 안에서 중앙 정렬 */
 .TableControl {
-  max-width: 100%;
+  margin: 0 auto !important;
 }
 
-/* 테이블 셀 정렬 보정 */
+/* 테이블 기본 스타일 */
 table {
   border-collapse: collapse;
 }
@@ -287,16 +307,10 @@ td {
   overflow-wrap: break-word;
 }
 
-/* 인쇄용 A4 레이아웃 */
-.Paper {
-  background-color: #fff;
-  margin: 0 auto;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-}
-
+/* 인쇄 최적화 */
 @media print {
-  body { background: none; padding: 0; margin: 0; }
-  .Paper { box-shadow: none; border: none; margin: 0; }
+  html, body { background: none !important; padding: 10mm 15mm; margin: 0; width: auto; }
+  .Paper { box-shadow: none; border: none; margin: 0; width: 100% !important; }
 }
 </style>
 """
