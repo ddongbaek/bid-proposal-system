@@ -223,6 +223,7 @@ class CompanyInfoUpdate(BaseModel):
     representative: str | None = None
     representative_birth: str | None = None
     address: str | None = None
+    zip_code: str | None = None
     phone: str | None = None
     fax: str | None = None
     email: str | None = None
@@ -246,6 +247,7 @@ class CompanyInfoResponse(BaseModel):
     representative: str | None = None
     representative_birth: str | None = None
     address: str | None = None
+    zip_code: str | None = None
     phone: str | None = None
     fax: str | None = None
     email: str | None = None
@@ -255,6 +257,8 @@ class CompanyInfoResponse(BaseModel):
     establishment_date: str | None = None
     capital: str | None = None
     employee_count: str | None = None
+    seal_image: str | None = None
+    certified_copy_image: str | None = None
     updated_at: datetime | None = None
 
 

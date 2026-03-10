@@ -426,6 +426,28 @@ export const companyApi = {
     const response = await api.put('/company/', data);
     return response.data;
   },
+
+  /** 회사 이미지 업로드 (seal_image | certified_copy_image) */
+  uploadImage: async (imageType: string, file: File): Promise<CompanyInfo> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post(`/company/images/${imageType}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  /** 회사 이미지 삭제 */
+  deleteImage: async (imageType: string): Promise<CompanyInfo> => {
+    const response = await api.delete(`/company/images/${imageType}`);
+    return response.data;
+  },
+
+  /** 회사 이미지 URL */
+  imageUrl: (imageType: string): string => {
+    const base = import.meta.env.VITE_API_BASE_URL || '/api';
+    return `${base}/company/images/${imageType}`;
+  },
 };
 
 export default api;

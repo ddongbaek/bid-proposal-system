@@ -1,7 +1,9 @@
 """인력 자동 채움 서비스 — HTML {{placeholder}} 패턴을 인력 DB 데이터로 치환"""
 
+import base64
 import json
 import logging
+import os
 import re
 from datetime import date
 
@@ -76,6 +78,18 @@ def _build_simple_field_map(
 
     if bid_personnel:
         field_map["role_in_bid"] = _safe_str(bid_personnel.role_in_bid)
+
+        # 역할별 별칭: PM으로 배정된 인력이면 pm_* 도 채움
+        role = _safe_str(bid_personnel.role_in_bid).upper()
+        if "PM" in role or "관리자" in role:
+            field_map["pm_name"] = field_map["name"]
+            field_map["pm_phone"] = field_map["phone"]
+            field_map["pm_email"] = field_map["email"]
+
+        # 제출자 별칭
+        if "제출" in _safe_str(bid_personnel.role_in_bid) or "신청" in _safe_str(bid_personnel.role_in_bid):
+            field_map["submitter_phone"] = field_map["phone"]
+            field_map["submitter_email"] = field_map["email"]
 
     return field_map
 
@@ -309,6 +323,7 @@ def fill_company(
         "representative": _safe_str(company_info.representative),
         "representative_birth": _safe_str(company_info.representative_birth),
         "address": _safe_str(company_info.address),
+        "zip_code": _safe_str(company_info.zip_code),
         "phone": _safe_str(company_info.phone),
         "fax": _safe_str(company_info.fax),
         "email": _safe_str(company_info.email),
@@ -327,8 +342,101 @@ def fill_company(
     filled_count = len(vars_before - vars_after)
     remaining = sorted(vars_after)
 
+    # 인감도장 오버레이 처리
+    seal_path = getattr(company_info, "seal_image", None)
+    if seal_path:
+        result_html = _overlay_seal_image(result_html, seal_path)
+
     logger.info(
         "회사 정보 자동 채움 완료: 치환=%d개, 미치환=%d개",
+        filled_count,
+        len(remaining),
+    )
+
+    return {
+        "html_content": result_html,
+        "filled_count": filled_count,
+        "remaining": remaining,
+    }
+
+
+def _overlay_seal_image(html: str, seal_path: str) -> str:
+    """
+    HTML 내 (인) 텍스트를 찾아서 인감 이미지를 오버레이로 삽입한다.
+    (인) 텍스트가 포함된 부분을 position:relative 컨테이너로 감싸고,
+    인감 이미지를 absolute 중앙 배치한다.
+    """
+    if not seal_path or not os.path.exists(seal_path):
+        return html
+
+    # 이미지를 base64로 인라인 (PDF 생성 시에도 표시되도록)
+    try:
+        with open(seal_path, "rb") as f:
+            img_data = base64.b64encode(f.read()).decode("ascii")
+        ext = os.path.splitext(seal_path)[1].lower()
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp"}.get(ext.lstrip("."), "image/png")
+        data_uri = f"data:{mime};base64,{img_data}"
+    except Exception:
+        logger.warning("인감 이미지 읽기 실패: %s", seal_path)
+        return html
+
+    seal_img = (
+        f'<img src="{data_uri}" alt="인감" style="'
+        f"position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); "
+        f'width:70px; height:70px; object-fit:contain; opacity:0.85; pointer-events:none;">'
+    )
+
+    # (인), ( 인 ), (印) 패턴 찾아서 오버레이
+    # <td> 또는 <span> 안에 있을 수 있으므로, 텍스트 레벨에서 교체
+    seal_pattern = re.compile(r'(\(\s*인\s*\)|\(\s*印\s*\))')
+
+    def replace_seal(match: re.Match) -> str:
+        original = match.group(0)
+        return (
+            f'<span style="position:relative; display:inline-block;">'
+            f'{original}{seal_img}</span>'
+        )
+
+    result = seal_pattern.sub(replace_seal, html)
+    if result != html:
+        logger.info("인감 이미지 오버레이 삽입 완료")
+    return result
+
+
+def fill_bid_info(
+    html_content: str,
+    bid_name: str | None = None,
+    bid_number: str | None = None,
+    client_name: str | None = None,
+) -> dict:
+    """
+    HTML 내 {{bid_name}}, {{bid_number}}, {{client_name}} 패턴을 입찰 정보로 치환한다.
+
+    Returns:
+        {"html_content": str, "filled_count": int, "remaining": list[str]}
+    """
+    if not html_content:
+        return {"html_content": "", "filled_count": 0, "remaining": []}
+
+    vars_before = set(_extract_variables(html_content))
+    result_html = html_content
+
+    bid_field_map: dict[str, str] = {
+        "bid_name": _safe_str(bid_name),
+        "bid_number": _safe_str(bid_number),
+        "client_name": _safe_str(client_name),
+    }
+
+    for key, value in bid_field_map.items():
+        result_html = result_html.replace("{{" + key + "}}", value)
+
+    vars_after = set(_extract_variables(result_html))
+    filled_count = len(vars_before - vars_after)
+    remaining = sorted(vars_after)
+
+    logger.info(
+        "입찰 정보 자동 채움 완료: 치환=%d개, 미치환=%d개",
         filled_count,
         len(remaining),
     )

@@ -438,6 +438,280 @@ def _fix_table_control_structure(html: str) -> str:
     return ''.join(result)
 
 
+def _remove_empty_table_controls(html: str) -> str:
+    """빈 TableControl 요소 제거 (pyhwp가 생성하는 빈 박스 아티팩트).
+
+    텍스트 내용이 없는 TableControl div/span을 찾아 제거한다.
+    원본 HWP에 없던 빈 테이블 박스가 변환 과정에서 생기는 문제를 해결.
+    """
+    result: list[str] = []
+    pos = 0
+    removed = 0
+
+    while pos < len(html):
+        # div 또는 span TableControl 찾기
+        div_idx = html.find('<div class="TableControl"', pos)
+        span_idx = html.find('<span class="TableControl"', pos)
+
+        # 가장 가까운 것 선택
+        candidates = []
+        if div_idx != -1:
+            candidates.append((div_idx, 'div'))
+        if span_idx != -1:
+            candidates.append((span_idx, 'span'))
+
+        if not candidates:
+            result.append(html[pos:])
+            break
+
+        next_tc, tc_tag = min(candidates, key=lambda x: x[0])
+
+        # 매칭되는 닫는 태그 찾기
+        close_tag = f'</{tc_tag}>'
+        tag_open = f'<{tc_tag}'
+        tag_start_end = html.find('>', next_tc) + 1
+        close_pos = -1
+
+        if tag_start_end == 0:
+            result.append(html[pos:next_tc + 1])
+            pos = next_tc + 1
+            continue
+
+        # 중첩 태그 처리
+        depth = 1
+        search = tag_start_end
+        while search < len(html) and depth > 0:
+            next_open = html.find(tag_open, search)
+            next_close = html.find(close_tag, search)
+            if next_close == -1:
+                break
+            # 같은 종류의 열기 태그가 닫기 태그보다 앞에 있으면 depth++
+            if next_open != -1 and next_open < next_close:
+                # 실제 태그인지 확인 (속성이나 > 뒤에 오는지)
+                after_open = html[next_open + len(tag_open):next_open + len(tag_open) + 1]
+                if after_open in (' ', '>', '/'):
+                    depth += 1
+                search = next_open + len(tag_open)
+            else:
+                depth -= 1
+                if depth == 0:
+                    close_pos = next_close + len(close_tag)
+                search = next_close + len(close_tag)
+
+        if close_pos == -1:
+            result.append(html[pos:next_tc + 1])
+            pos = next_tc + 1
+            continue
+
+        # 블록 내 텍스트 추출 → 비었으면 제거
+        block = html[next_tc:close_pos]
+        text = re.sub(r'<[^>]+>', '', block)
+        text = re.sub(r'&#\d+;', '', text)  # &#13; 등 숫자 엔티티
+        text = re.sub(r'&\w+;', '', text)   # &nbsp; 등 이름 엔티티
+        text = re.sub(r'[\s\u00a0]+', '', text)  # 공백 + non-breaking space
+
+        if len(text) == 0:
+            # 빈 TableControl → 제거
+            result.append(html[pos:next_tc])
+            pos = close_pos
+            removed += 1
+        else:
+            # 내용 있음 → 유지
+            result.append(html[pos:close_pos])
+            pos = close_pos
+
+    if removed > 0:
+        logger.info("빈 TableControl %d개 제거됨", removed)
+
+    return ''.join(result)
+
+
+# ──────────────────────────────────────────────
+# 자동 placeholder 삽입
+# ──────────────────────────────────────────────
+
+# 한국 공공입찰 양식 라벨 → placeholder 매핑
+# (라벨텍스트, 문맥키워드(or None), placeholder명)
+# 순서 중요: 구체적인 문맥이 앞에, 일반적인 것이 뒤에
+_FORM_LABELS: list[tuple[str, list[str] | None, str]] = [
+    # 입찰 정보 (fill_bid_info 필드)
+    ("공고번호", None, "bid_number"),
+    ("공고일자", None, "bid_date"),
+    ("공고명", None, "bid_name"),
+
+    # 회사 정보 (fill_company 필드)
+    ("상호", None, "company_name"),
+    ("법인명칭", None, "company_name"),
+    ("업체명", None, "company_name"),
+    ("사업자등록번호", None, "business_number"),
+    ("법인등록번호", None, "corporate_number"),
+    ("주소", None, "address"),
+    ("소재지", None, "address"),
+    ("팩스", None, "fax"),
+    ("전화번호", None, "phone"),  # 회사 전화
+    ("대표전화", None, "phone"),
+
+    # 대표자 (company_info 필드)
+    ("성명", ["대표"], "representative"),
+    ("생년월일", ["대표"], "representative_birth"),
+
+    # 사업관리자/PM (별도 인력)
+    ("성명", ["관리자", "PM", "ＰＭ"], "pm_name"),
+    ("휴대전화", ["관리자", "PM", "ＰＭ"], "pm_phone"),
+    ("전자우편", ["관리자", "PM", "ＰＭ"], "pm_email"),
+
+    # 제안서 제출자 / 일반 인력 (fill_personnel 필드)
+    ("성명", ["제출", "신청"], "name"),
+    ("휴대전화", ["제출", "신청"], "submitter_phone"),
+    ("전자우편", ["제출", "신청"], "submitter_email"),
+
+    # 기본 (문맥 없을 때)
+    ("성명", None, "name"),
+    ("휴대전화", None, "phone"),
+    ("전자우편", None, "email"),
+    ("생년월일", None, "birth_date"),
+]
+
+
+def _extract_cell_text(fragment: str) -> str:
+    """HTML 조각에서 순수 텍스트만 추출."""
+    text = re.sub(r'<[^>]+>', '', fragment)
+    text = re.sub(r'&#\d+;', '', text)
+    text = re.sub(r'&\w+;', '', text)
+    return re.sub(r'[\s\u00a0]+', ' ', text).strip()
+
+
+def _normalize_label(text: str) -> str:
+    """라벨 텍스트에서 모든 공백 제거 (HWP 자간 설정 대응).
+
+    HWP에서 글자 간격이 넓으면 pyhwp가 "공 고 번 호"처럼 공백을 삽입하는데,
+    라벨 매칭 시에는 "공고번호"와 동일하게 취급해야 한다.
+    """
+    return re.sub(r'[\s\u00a0]+', '', text)
+
+
+def _is_cell_empty(fragment: str) -> bool:
+    """셀이 비어있는지 확인.
+
+    순수 빈 셀 뿐 아니라 ( ), (  ) 등 괄호만 있는 셀도 빈 것으로 취급.
+    HWP 양식에서 기입란으로 쓰이는 패턴.
+    """
+    text = _extract_cell_text(fragment)
+    if not text:
+        return True
+    # ( ), (  ), () 등 괄호만 있는 경우도 빈 셀
+    stripped = re.sub(r'[()\[\]\s\u00a0]', '', text)
+    return len(stripped) == 0
+
+
+def _insert_text_in_span(cell_inner: str, text: str) -> str:
+    """pyhwp 셀 내부 span에 텍스트 삽입. 기존 구조 유지."""
+    # <p class="..."><span class="...">&#13;</span></p> → <span>에 텍스트 삽입
+    m = re.search(r'(<span[^>]*>)([^<]*)(</span>)', cell_inner)
+    if m:
+        return cell_inner[:m.start(2)] + text + cell_inner[m.end(2):]
+    # span이 없으면 직접 삽입
+    return text
+
+
+def _auto_insert_placeholders(html: str) -> str:
+    """HWP 변환 HTML의 빈 테이블 셀에 자동으로 {{placeholder}} 삽입.
+
+    한국 공공입찰 양식의 일반적인 패턴을 감지:
+    - 라벨 셀 (예: "공고번호") 옆 빈 셀 → {{placeholder}}
+    - 병합 셀(rowspan)의 문맥을 3행 이내에서 감지
+    """
+    used: set[str] = set()
+    inserted_count = 0
+
+    # 모든 <tr> 블록 찾기
+    tr_matches = list(re.finditer(r'(<tr[^>]*>)(.*?)(</tr>)', html, re.DOTALL))
+    if not tr_matches:
+        return html
+
+    # 각 행의 텍스트를 미리 추출 (문맥 탐색용)
+    row_texts = [_extract_cell_text(m.group(2)) for m in tr_matches]
+
+    # 역순으로 처리 (위치 이동 방지)
+    for row_idx in range(len(tr_matches) - 1, -1, -1):
+        tr_m = tr_matches[row_idx]
+        tr_inner = tr_m.group(2)
+
+        # 이 행의 셀 목록
+        cells = list(re.finditer(r'(<td[^>]*>)(.*?)(</td>)', tr_inner, re.DOTALL))
+        if not cells:
+            continue
+
+        # 이 행에서 수행할 치환 (셀 인덱스 → placeholder)
+        replacements: dict[int, str] = {}
+
+        for i, cell_m in enumerate(cells):
+            cell_text = _extract_cell_text(cell_m.group(2))
+            if not cell_text:
+                continue
+
+            # 문맥: 같은 행에서 이 셀의 왼쪽 셀들만 (병합 셀 문맥 오염 방지)
+            left_context = " ".join(
+                _extract_cell_text(cells[k].group(2)) for k in range(0, i)
+            )
+            # 빈 왼쪽 셀만 있는 계속 행이면 이전 1행 참조 (rowspan 문맥)
+            if not left_context.strip() and row_idx > 0:
+                left_context = row_texts[row_idx - 1]
+
+            # 라벨 매칭 (공백 제거 후 비교 — HWP 자간 대응)
+            cell_text_norm = _normalize_label(cell_text)
+            left_context_norm = _normalize_label(left_context)
+            for label, ctx_keywords, placeholder in _FORM_LABELS:
+                if label not in cell_text_norm:
+                    continue
+                if placeholder in used:
+                    continue
+                # 문맥 키워드 확인 (공백 제거 후 비교)
+                if ctx_keywords:
+                    if not any(kw in left_context_norm for kw in ctx_keywords):
+                        continue
+
+                # 다음 빈 셀 찾기
+                for j in range(i + 1, len(cells)):
+                    if _is_cell_empty(cells[j].group(2)):
+                        replacements[j] = placeholder
+                        used.add(placeholder)
+                        break
+                    elif _extract_cell_text(cells[j].group(2)):
+                        break  # 다음 라벨 셀 → 건너뜀
+                break  # 첫 매칭으로 결정
+
+        # 치환 적용 (위치 기반 — 빈 셀의 HTML이 동일해도 정확한 위치에 삽입)
+        if replacements:
+            parts: list[str] = []
+            last_pos = 0
+            for j in sorted(replacements.keys()):
+                cell_m = cells[j]
+                ph = replacements[j]
+                # 셀 시작까지 원본 유지
+                parts.append(tr_inner[last_pos:cell_m.start()])
+                # 셀 내부에 placeholder 삽입
+                new_inner = _insert_text_in_span(cell_m.group(2), "{{" + ph + "}}")
+                parts.append(cell_m.group(1) + new_inner + cell_m.group(3))
+                last_pos = cell_m.end()
+            parts.append(tr_inner[last_pos:])
+            new_tr_inner = ''.join(parts)
+
+            old_tr = tr_m.group(0)
+            new_tr = tr_m.group(1) + new_tr_inner + tr_m.group(3)
+            html = html[:tr_m.start()] + new_tr + html[tr_m.end():]
+            inserted_count += len(replacements)
+
+    if inserted_count > 0:
+        logger.info(
+            "자동 placeholder %d개 삽입: %s",
+            inserted_count,
+            ", ".join(sorted(used)),
+        )
+
+    return html
+
+
 def _inject_normalize_css(html: str) -> str:
     """변환된 HTML에 폰트 정규화 + 레이아웃 보정 CSS를 삽입."""
     import re
@@ -456,6 +730,18 @@ def _inject_normalize_css(html: str) -> str:
                 break
     except Exception:
         logger.warning("TableControl 변환 스킵 (복잡한 구조)")
+
+    # 빈 TableControl 제거 (원본에 없던 빈 박스 아티팩트)
+    try:
+        html = _remove_empty_table_controls(html)
+    except Exception:
+        logger.warning("빈 TableControl 제거 스킵")
+
+    # 빈 셀에 자동 placeholder 삽입
+    try:
+        html = _auto_insert_placeholders(html)
+    except Exception:
+        logger.warning("자동 placeholder 삽입 스킵")
 
     # .Normal 클래스에서 text-align 제거 (parashape 클래스의 text-align이 확실히 적용되도록)
     html = re.sub(

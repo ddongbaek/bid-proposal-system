@@ -1,86 +1,61 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useSyncExternalStore } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Upload, FileText, Loader2, X, ExternalLink, Code, Pencil, CheckSquare, Square, FolderPlus } from 'lucide-react';
 import { hwpApi, bidApi } from '../services/api';
+import {
+  getHwpConversionState,
+  subscribeHwpConversion,
+  startHwpConversion,
+  resetHwpConversion,
+} from '../services/hwpConversionStore';
 import type { Bid } from '../types';
 import Modal from '../components/common/Modal';
 
 const ALLOWED_EXTENSIONS = ['.hwp'];
 
-interface HwpSection {
-  index: number;
-  label: string;
-}
-
 export default function HwpConverter() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [file, setFile] = useState<File | null>(null);
-  const [convertLoading, setConvertLoading] = useState(false);
-  const [extractLoading, setExtractLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // 전역 스토어에서 변환 상태 구독
+  const conversion = useSyncExternalStore(subscribeHwpConversion, getHwpConversionState);
+  const { status, fileName, file, htmlContent, sections, error: conversionError } = conversion;
 
-  // HTML 변환 결과
-  const [htmlContent, setHtmlContent] = useState<string | null>(null);
-  // 섹션 목록
-  const [sections, setSections] = useState<HwpSection[]>([]);
-  // 선택된 섹션 인덱스
+  const [extractLoading, setExtractLoading] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  // 섹션 선택
   const [selectedSections, setSelectedSections] = useState<Set<number>>(new Set());
-  // 소스코드 보기 토글
   const [showSource, setShowSource] = useState(false);
 
-  // 입찰에 추가 모달
+  // 입찰 모달
   const [showBidModal, setShowBidModal] = useState(false);
   const [bidList, setBidList] = useState<Bid[]>([]);
   const [bidLoading, setBidLoading] = useState(false);
   const [addingToBid, setAddingToBid] = useState<number | null>(null);
 
-  const resetState = () => {
-    setFile(null);
-    setHtmlContent(null);
-    setSections([]);
-    setSelectedSections(new Set());
-    setError(null);
-    setShowSource(false);
-  };
+  const error = conversionError || localError;
 
   const validateFile = (f: File): boolean => {
     const ext = '.' + f.name.split('.').pop()?.toLowerCase();
     if (!ALLOWED_EXTENSIONS.includes(ext)) {
-      setError('지원하지 않는 파일 형식입니다. 현재 .hwp 파일만 지원합니다.');
+      setLocalError('지원하지 않는 파일 형식입니다. 현재 .hwp 파일만 지원합니다.');
       return false;
     }
     if (f.size > 50 * 1024 * 1024) {
-      setError('파일 크기가 50MB를 초과합니다.');
+      setLocalError('파일 크기가 50MB를 초과합니다.');
       return false;
     }
     return true;
   };
 
-  const handleFileSelect = useCallback(async (selectedFile: File) => {
+  const handleFileSelect = useCallback((selectedFile: File) => {
     if (!validateFile(selectedFile)) return;
-
-    resetState();
-    setFile(selectedFile);
-    setError(null);
-    setConvertLoading(true);
-
-    try {
-      const result = await hwpApi.toHtml(selectedFile);
-      setHtmlContent(result.html_content);
-      if (result.sections && result.sections.length > 0) {
-        setSections(result.sections);
-      }
-    } catch (err: unknown) {
-      const msg = axios.isAxiosError(err) && err.response?.data?.detail
-        ? err.response.data.detail
-        : err instanceof Error ? err.message : 'HTML 변환에 실패했습니다.';
-      setError(msg);
-    } finally {
-      setConvertLoading(false);
-    }
+    setLocalError(null);
+    setSelectedSections(new Set());
+    setShowSource(false);
+    startHwpConversion(selectedFile);
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -88,6 +63,13 @@ export default function HwpConverter() {
     const droppedFile = e.dataTransfer.files[0];
     if (droppedFile) handleFileSelect(droppedFile);
   }, [handleFileSelect]);
+
+  const handleReset = () => {
+    resetHwpConversion();
+    setLocalError(null);
+    setSelectedSections(new Set());
+    setShowSource(false);
+  };
 
   const handleOpenNewWindow = () => {
     if (!htmlContent) return;
@@ -101,18 +83,15 @@ export default function HwpConverter() {
   const handleOpenInEditor = () => {
     if (!htmlContent) return;
     sessionStorage.setItem('hwpHtmlContent', htmlContent);
-    sessionStorage.setItem('hwpFileName', file?.name || 'HWP 변환');
+    sessionStorage.setItem('hwpFileName', fileName || 'HWP 변환');
     navigate('/editor');
   };
 
   const toggleSection = (index: number) => {
     setSelectedSections((prev) => {
       const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
   };
@@ -144,7 +123,6 @@ export default function HwpConverter() {
 
     try {
       if (useSelectedSections && file && selectedSections.size > 0) {
-        // 각 서식을 개별 장표로 분리해서 추가
         const indices = Array.from(selectedSections).sort((a, b) => a - b);
         for (const idx of indices) {
           const result = await hwpApi.extractSections(file, [idx]);
@@ -157,9 +135,8 @@ export default function HwpConverter() {
           });
         }
       } else {
-        // 전체 HTML을 하나의 장표로 추가
         await bidApi.addPageHtml(bid.id, {
-          page_name: file?.name?.replace(/\.hwp$/i, '') || 'HWP 변환',
+          page_name: fileName?.replace(/\.hwp$/i, '') || 'HWP 변환',
           html_content: htmlContent!,
           css_content: null,
         });
@@ -186,11 +163,14 @@ export default function HwpConverter() {
       navigate('/editor');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '섹션 추출에 실패했습니다.';
-      setError(msg);
+      setLocalError(msg);
     } finally {
       setExtractLoading(false);
     }
   };
+
+  const isConverting = status === 'converting';
+  const hasFile = status !== 'idle';
 
   return (
     <div className="p-6">
@@ -203,7 +183,7 @@ export default function HwpConverter() {
       </div>
 
       {/* 파일 업로드 */}
-      {!file ? (
+      {!hasFile ? (
         <div
           onDrop={handleDrop}
           onDragOver={(e) => e.preventDefault()}
@@ -240,18 +220,21 @@ export default function HwpConverter() {
                   <FileText className="text-blue-600" size={20} />
                 </div>
                 <div>
-                  <p className="font-medium text-gray-900">{file.name}</p>
+                  <p className="font-medium text-gray-900">{fileName}</p>
                   <p className="text-sm text-gray-500">
-                    {(file.size / 1024).toFixed(0)} KB
-                    {convertLoading && (
+                    {file && `${(file.size / 1024).toFixed(0)} KB`}
+                    {isConverting && (
                       <span className="ml-2 text-blue-600">
-                        <Loader2 className="inline animate-spin" size={14} /> 변환 중...
+                        <Loader2 className="inline animate-spin" size={14} /> 변환 중... (다른 페이지로 이동해도 계속됩니다)
                       </span>
                     )}
-                    {htmlContent && !convertLoading && (
+                    {status === 'done' && htmlContent && (
                       <span className="ml-2 text-green-600 font-medium">
                         변환 완료 ({sections.length > 0 ? `${sections.length}개 서식` : `${(htmlContent.length / 1024).toFixed(0)} KB`})
                       </span>
+                    )}
+                    {status === 'error' && (
+                      <span className="ml-2 text-red-600 font-medium">변환 실패</span>
                     )}
                   </p>
                 </div>
@@ -294,7 +277,7 @@ export default function HwpConverter() {
                   </>
                 )}
                 <button
-                  onClick={resetState}
+                  onClick={handleReset}
                   className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600"
                   title="다른 파일 선택"
                 >

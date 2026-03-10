@@ -48,11 +48,15 @@ export default function PreviewPanel({
 
     // htmlContent가 <!DOCTYPE> 또는 <html>로 시작하면 그대로 사용
     // (백엔드 변환 시 A4 레이아웃 CSS가 이미 포함됨)
+    // 빈 TableControl 제거 스크립트 (pyhwp 아티팩트)
+    const cleanupScript = '<script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\\u00a0\\s]/g,""))el.remove()})});</script>';
+
     if (htmlContent.trim().toLowerCase().startsWith('<!doctype') || htmlContent.trim().toLowerCase().startsWith('<html')) {
-      if (cssContent && htmlContent.includes('</head>')) {
-        return htmlContent.replace('</head>', `${cssBlock}\n</head>`);
+      if (htmlContent.includes('</head>')) {
+        const extra = (cssContent ? cssBlock + '\n' : '') + cleanupScript;
+        return htmlContent.replace('</head>', `${extra}\n</head>`);
       }
-      return cssContent ? cssBlock + htmlContent : htmlContent;
+      return (cssContent ? cssBlock : '') + cleanupScript + htmlContent;
     }
 
     // 부분 HTML이면 전체 문서로 래핑

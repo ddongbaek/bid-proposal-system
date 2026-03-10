@@ -46,13 +46,20 @@ def _html_to_pdf_sync(html_content: str, css_content: str | None = None) -> byte
         full_html = _build_full_html(html_content, css_content)
         page.set_content(full_html, wait_until="networkidle")
 
+        # 빈 TableControl 제거 (pyhwp 아티팩트 - nbsp 등 보이지 않는 문자 포함)
+        page.evaluate(r"""() => {
+            document.querySelectorAll('.TableControl').forEach(el => {
+                if (!el.textContent.replace(/[\u00a0\s]/g, '')) el.remove();
+            });
+        }""")
+
         pdf_bytes = page.pdf(
             format="A4",
             margin={
-                "top": "10mm",
-                "right": "10mm",
-                "bottom": "10mm",
-                "left": "10mm",
+                "top": "0mm",
+                "right": "0mm",
+                "bottom": "0mm",
+                "left": "0mm",
             },
             print_background=True,
         )

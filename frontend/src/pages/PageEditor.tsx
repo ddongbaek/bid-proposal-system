@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { Save, X, BookOpen, Loader2 } from 'lucide-react';
-import AiChatPanel from '../components/editor/AiChatPanel';
+import { Save, X, BookOpen, Loader2, Download, Upload } from 'lucide-react';
 import CodeEditorPanel from '../components/editor/CodeEditorPanel';
 import PreviewPanel from '../components/editor/PreviewPanel';
 import Modal from '../components/common/Modal';
-import { aiApi, libraryApi, hwpApi, bidApi } from '../services/api';
-import type { AiChatMessage, PageLibraryCreate } from '../types';
+import { libraryApi, bidApi } from '../services/api';
+import type { PageLibraryCreate } from '../types';
 
 // 기본 HTML 템플릿
 const DEFAULT_HTML = `<!DOCTYPE html>
@@ -83,10 +82,6 @@ export default function PageEditor() {
   const [previewHtml, setPreviewHtml] = useState<string>('');
   const [previewCss, setPreviewCss] = useState<string>('');
 
-  // AI 채팅 상태
-  const [chatMessages, setChatMessages] = useState<AiChatMessage[]>([]);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
   // 저장 모달 상태
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,6 +98,9 @@ export default function PageEditor() {
 
   // Debounce 타이머
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // HTML 파일 업로드용 ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // HWP 변환 결과를 ref로 캡처 (StrictMode 이중 실행 대응)
   const hwpDataRef = useRef<{ html: string; fileName: string } | null>(null);
@@ -144,10 +142,8 @@ export default function PageEditor() {
   // 초기 데이터 로드
   useEffect(() => {
     if (bidId && pageId) {
-      // 입찰 내 장표 편집
       loadBidPage(bidId, pageId);
     } else if (libraryId) {
-      // 라이브러리에서 장표 불러오기
       loadFromLibrary(parseInt(libraryId));
     } else {
       const hwpData = hwpDataRef.current;
@@ -157,11 +153,6 @@ export default function PageEditor() {
         setPreviewHtml(hwpData.html);
         setPreviewCss('');
         setSaveName(hwpData.fileName.replace(/\.hwp$/i, ''));
-        setChatMessages([{
-          role: 'assistant',
-          content: `HWP 변환 결과가 로드되었습니다: ${hwpData.fileName}\nAI에게 수정을 요청하거나 직접 코드를 편집하세요.`,
-          timestamp: new Date(),
-        }]);
       } else {
         // 독립 편집기 모드 - 빈 상태에서 시작
         setHtmlContent('');
@@ -184,18 +175,10 @@ export default function PageEditor() {
       setSaveCategory(item.category || '');
       setSaveDescription(item.description || '');
     } catch {
-      // API 미연결 시 기본 템플릿으로 fallback
       setHtmlContent(DEFAULT_HTML);
       setCssContent('');
       setPreviewHtml(DEFAULT_HTML);
       setPreviewCss('');
-      setChatMessages([
-        {
-          role: 'assistant',
-          content: '라이브러리에서 장표를 불러오지 못했습니다. 기본 템플릿이 로드되었습니다.',
-          timestamp: new Date(),
-        },
-      ]);
     } finally {
       setIsLoadingLibrary(false);
     }
@@ -219,127 +202,50 @@ export default function PageEditor() {
     }, 300);
   }, []);
 
-  // AI 자연어 수정 요청
-  const handleAiMessage = async (message: string) => {
-    // 사용자 메시지 추가
-    const userMsg: AiChatMessage = {
-      role: 'user',
-      content: message,
-      timestamp: new Date(),
-    };
-    setChatMessages((prev) => [...prev, userMsg]);
-    setIsAiLoading(true);
-
-    try {
-      const response = await aiApi.modify({
-        html_content: htmlContent,
-        css_content: cssContent || undefined,
-        request: message,
-      });
-
-      // AI 응답으로 코드 업데이트
-      setHtmlContent(response.html_content);
-      setCssContent(response.css_content || '');
-      setPreviewHtml(response.html_content);
-      setPreviewCss(response.css_content || '');
-
-      // AI 응답 메시지 추가
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: response.changes_description,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      // API 미연결 시 mock 응답
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: `[API 미연결] "${message}" 요청을 처리하지 못했습니다. 백엔드 AI 서비스가 아직 준비되지 않았습니다. 직접 코드를 수정해주세요.`,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  // HWP → HTML 변환
-  const handleHwpUpload = async (file: File) => {
-    const userMsg: AiChatMessage = {
-      role: 'user',
-      content: `HWP 업로드: ${file.name}`,
-      timestamp: new Date(),
-    };
-    setChatMessages((prev) => [...prev, userMsg]);
-    setIsAiLoading(true);
-
-    try {
-      const result = await hwpApi.toHtml(file);
-
-      setHtmlContent(result.html_content);
-      setCssContent('');
-      setPreviewHtml(result.html_content);
-      setPreviewCss('');
-      setSaveName(file.name.replace(/\.hwp$/i, ''));
-
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: `HWP 변환 완료: ${result.filename}\nHTML 코드가 에디터에 로드되었습니다. AI에게 수정을 요청하거나 직접 편집하세요.`,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: `HWP 변환에 실패했습니다. 백엔드 서버 연결을 확인하세요.`,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  // AI PDF → HTML 변환
-  const handlePdfUpload = async (file: File, instructions?: string) => {
-    const userMsg: AiChatMessage = {
-      role: 'user',
-      content: `PDF 업로드: ${file.name}${instructions ? `\n지시사항: ${instructions}` : ''}`,
-      timestamp: new Date(),
-    };
-    setChatMessages((prev) => [...prev, userMsg]);
-    setIsAiLoading(true);
-
-    try {
-      const response = await aiApi.pdfToHtml(file, instructions);
-
-      // 변환 결과로 에디터 업데이트
-      setHtmlContent(response.html_content);
-      setCssContent(response.css_content || '');
-      setPreviewHtml(response.html_content);
-      setPreviewCss(response.css_content || '');
-
-      // 성공 메시지
-      let aiMessage = response.message;
-      if (response.detected_variables.length > 0) {
-        aiMessage += `\n\n감지된 변수: ${response.detected_variables.join(', ')}`;
+  // HTML 다운로드
+  const handleDownloadHtml = () => {
+    // CSS가 별도로 있으면 HTML에 합쳐서 다운로드
+    let fullHtml = htmlContent;
+    if (cssContent && !htmlContent.includes(cssContent)) {
+      const cssBlock = `<style>\n${cssContent}\n</style>`;
+      if (fullHtml.includes('</head>')) {
+        fullHtml = fullHtml.replace('</head>', `${cssBlock}\n</head>`);
+      } else {
+        fullHtml = cssBlock + '\n' + fullHtml;
       }
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: aiMessage,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } catch {
-      const aiMsg: AiChatMessage = {
-        role: 'assistant',
-        content: `[API 미연결] PDF 변환에 실패했습니다. 백엔드 AI 서비스가 아직 준비되지 않았습니다.`,
-        timestamp: new Date(),
-      };
-      setChatMessages((prev) => [...prev, aiMsg]);
-    } finally {
-      setIsAiLoading(false);
     }
+
+    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (saveName || '장표').replace(/[/\\?%*:|"<>]/g, '_') + '.html';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // HTML 파일 업로드
+  const handleUploadHtml = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const content = ev.target?.result as string;
+      if (content) {
+        setHtmlContent(content);
+        setCssContent('');
+        setPreviewHtml(content);
+        setPreviewCss('');
+        if (!saveName) {
+          setSaveName(file.name.replace(/\.html?$/i, ''));
+        }
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+
+    // input 초기화 (같은 파일 재업로드 가능하게)
+    e.target.value = '';
   };
 
   // 입찰 장표 저장 (bidId+pageId가 있을 때)
@@ -429,6 +335,34 @@ export default function PageEditor() {
           </h2>
         </div>
         <div className="flex items-center gap-2">
+          {/* HTML 다운로드 */}
+          <button
+            onClick={handleDownloadHtml}
+            disabled={!htmlContent.trim()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
+            title="HTML 파일로 다운로드"
+          >
+            <Download size={14} />
+            HTML 다운로드
+          </button>
+          {/* HTML 업로드 */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+            title="수정한 HTML 파일 업로드"
+          >
+            <Upload size={14} />
+            HTML 업로드
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".html,.htm"
+            onChange={handleUploadHtml}
+            className="hidden"
+          />
+          {/* 구분선 */}
+          <div className="w-px h-6 bg-gray-300" />
           {isBidEdit && (
             <button
               onClick={handleSaveToBid}
@@ -456,21 +390,10 @@ export default function PageEditor() {
         </div>
       </div>
 
-      {/* 3분할 레이아웃: AI(w-64) | 코드(w-[420px]) | 미리보기(flex-1, 가장 넓게) */}
+      {/* 2분할 레이아웃: 코드(flex-1) | 미리보기(flex-1) */}
       <div className="flex-1 flex min-h-0">
-        {/* 좌측: AI 채팅 패널 */}
-        <div className="w-64 flex-shrink-0 border-r border-gray-200">
-          <AiChatPanel
-            messages={chatMessages}
-            isLoading={isAiLoading}
-            onSendMessage={handleAiMessage}
-            onPdfUpload={handlePdfUpload}
-            onHwpUpload={handleHwpUpload}
-          />
-        </div>
-
-        {/* 중앙: 코드 에디터 (좁게) */}
-        <div className="w-[420px] flex-shrink-0 min-w-0">
+        {/* 좌측: 코드 에디터 */}
+        <div className="flex-1 min-w-0">
           <CodeEditorPanel
             htmlContent={htmlContent}
             cssContent={cssContent}
@@ -481,7 +404,7 @@ export default function PageEditor() {
           />
         </div>
 
-        {/* 우측: 미리보기 (가장 넓게) */}
+        {/* 우측: 미리보기 */}
         <div className="flex-1 border-l border-gray-200">
           <PreviewPanel
             htmlContent={previewHtml}

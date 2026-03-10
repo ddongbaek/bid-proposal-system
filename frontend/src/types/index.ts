@@ -291,6 +291,7 @@ export interface CompanyInfo {
   representative: string | null;
   representative_birth: string | null;
   address: string | null;
+  zip_code: string | null;
   phone: string | null;
   fax: string | null;
   email: string | null;
@@ -300,5 +301,7 @@ export interface CompanyInfo {
   establishment_date: string | null;
   capital: string | null;
   employee_count: string | null;
+  seal_image: string | null;
+  certified_copy_image: string | null;
   updated_at: string;
 }

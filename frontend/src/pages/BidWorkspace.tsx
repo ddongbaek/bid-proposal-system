@@ -493,9 +493,17 @@ export default function BidWorkspace() {
 
   // 자동 채움 결과 저장
   const handleSaveFilled = async () => {
-    if (!selectedPage || !fillPersonnelId || !numericBidId) return;
+    if (!selectedPage || !filledHtml || !numericBidId) return;
     try {
-      await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId, true);
+      if (fillPersonnelId) {
+        // 인력 채우기 결과 → fill API (save=true)로 저장
+        await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId, true);
+      } else {
+        // 회사정보/입찰정보만 채운 경우 → 직접 HTML PUT
+        await bidApi.updatePage(numericBidId, selectedPage.id, {
+          html_content: filledHtml,
+        });
+      }
       setFilledHtml(null);
       setFillStats(null);
       loadBid();
@@ -510,28 +518,74 @@ export default function BidWorkspace() {
     setFillStats(null);
   };
 
-  // 회사정보 자동 채움 (클라이언트 사이드)
-  const handleFillCompany = () => {
-    if (!selectedPage || !companyInfo) return;
+  // 회사정보 + 입찰정보 자동 채움 (클라이언트 사이드)
+  const handleFillCompany = async () => {
+    if (!selectedPage || !bid) return;
     let html = filledHtml || selectedPage.html_content || '';
-    const fields: (keyof CompanyInfo)[] = [
-      'company_name', 'business_number', 'corporate_number',
-      'representative', 'representative_birth', 'address',
-      'phone', 'fax', 'email', 'website',
-      'business_type', 'business_category', 'establishment_date',
-      'capital', 'employee_count',
-    ];
     let count = 0;
-    for (const field of fields) {
-      const value = companyInfo[field];
+
+    // 입찰 정보 치환 (공고번호, 공고명, 발주처)
+    const bidFields: Record<string, string | null | undefined> = {
+      bid_number: bid.bid_number,
+      bid_name: bid.bid_name,
+      client_name: bid.client_name,
+    };
+    for (const [key, value] of Object.entries(bidFields)) {
       if (value == null) continue;
-      const pattern = new RegExp(`\\{\\{${field}\\}\\}`, 'g');
+      const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
       const before = html;
       html = html.replace(pattern, String(value));
       if (html !== before) count++;
     }
+
+    // 회사정보 치환
+    if (companyInfo) {
+      const fields: (keyof CompanyInfo)[] = [
+        'company_name', 'business_number', 'corporate_number',
+        'representative', 'representative_birth', 'address', 'zip_code',
+        'phone', 'fax', 'email', 'website',
+        'business_type', 'business_category', 'establishment_date',
+        'capital', 'employee_count',
+      ];
+      for (const field of fields) {
+        const value = companyInfo[field];
+        if (value == null) continue;
+        const pattern = new RegExp(`\\{\\{${field}\\}\\}`, 'g');
+        const before = html;
+        html = html.replace(pattern, String(value));
+        if (html !== before) count++;
+      }
+
+      // 인감도장 오버레이: (인) 텍스트 위에 이미지 삽입
+      if (companyInfo.seal_image) {
+        try {
+          const resp = await fetch(companyApi.imageUrl('seal_image'));
+          if (resp.ok) {
+            const blob = await resp.blob();
+            const dataUri = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result as string);
+              reader.readAsDataURL(blob);
+            });
+            const sealImg = `<img src="${dataUri}" alt="인감" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:70px; height:70px; object-fit:contain; opacity:0.85; pointer-events:none;">`;
+            const sealPattern = /\(\s*인\s*\)|\(\s*印\s*\)/g;
+            const beforeSeal = html;
+            html = html.replace(sealPattern, (m) =>
+              `<span style="position:relative; display:inline-block;">${m}${sealImg}</span>`
+            );
+            if (html !== beforeSeal) count++;
+          }
+        } catch {
+          // 인감 이미지 로드 실패 — 무시
+        }
+      }
+    }
+
     if (count > 0) {
       setFilledHtml(html);
+      const remainingVars = [...html.matchAll(/\{\{(\w+)\}\}/g)].map(m => m[1]);
+      const unique = [...new Set(remainingVars)];
+      setFillStats({ filled: count, remaining: unique });
     }
   };
 
@@ -850,18 +904,16 @@ export default function BidWorkspace() {
                         </button>
                       </>
                     )}
-                    {companyInfo && (
-                      <>
-                        {bid.personnel.length > 0 && <div className="w-px h-4 bg-gray-300" />}
-                        <button
-                          onClick={handleFillCompany}
-                          className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
-                        >
-                          <Building2 size={12} />
-                          회사정보
-                        </button>
-                      </>
-                    )}
+                    <>
+                      {bid.personnel.length > 0 && <div className="w-px h-4 bg-gray-300" />}
+                      <button
+                        onClick={handleFillCompany}
+                        className="flex items-center gap-1 px-2 py-1 text-xs bg-purple-600 text-white rounded hover:bg-purple-700 transition-colors"
+                      >
+                        <Building2 size={12} />
+                        회사정보
+                      </button>
+                    </>
                     {filledHtml && (
                       <>
                         <div className="w-px h-4 bg-gray-300" />
@@ -903,7 +955,7 @@ export default function BidWorkspace() {
                         srcDoc={(() => {
                           const html = filledHtml || selectedPage.html_content || '';
                           // 항상 최종 A4 레이아웃 CSS 주입 (기존/신규 장표 모두 대응)
-                          const layoutCss = '<style>body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style>';
+                          const layoutCss = '<style>body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style><script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\u00a0\s]/g,""))el.remove()})});</script>';
                           if (html.includes('</head>')) {
                             return html.replace('</head>', layoutCss + '</head>');
                           }

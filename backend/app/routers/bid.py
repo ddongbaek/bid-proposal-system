@@ -29,7 +29,7 @@ from app.schemas.bid import (
     FillRequest,
     FillResponse,
 )
-from app.services.fill_service import fill_company, fill_personnel, get_selected_project_ids
+from app.services.fill_service import fill_bid_info, fill_company, fill_personnel, get_selected_project_ids
 
 logger = logging.getLogger(__name__)
 
@@ -397,7 +397,7 @@ async def fill_page_personnel(
     db: Session = Depends(get_db),
 ):
     """장표에 인력 데이터 자동 채움 — HTML {{placeholder}} 를 인력 DB 데이터로 치환"""
-    _get_bid_or_404(db, bid_id)
+    bid = _get_bid_or_404(db, bid_id)
 
     # 장표 조회
     page = (
@@ -450,6 +450,17 @@ async def fill_page_personnel(
         result["html_content"] = company_result["html_content"]
         result["filled_count"] += company_result["filled_count"]
         result["remaining"] = company_result["remaining"]
+
+    # 입찰 정보 자동 채움 (공고번호, 공고명, 발주처)
+    bid_result = fill_bid_info(
+        html_content=result["html_content"],
+        bid_name=bid.bid_name,
+        bid_number=bid.bid_number,
+        client_name=bid.client_name,
+    )
+    result["html_content"] = bid_result["html_content"]
+    result["filled_count"] += bid_result["filled_count"]
+    result["remaining"] = bid_result["remaining"]
 
     # save=true 이면 채움 결과를 DB에 저장
     if data.save:

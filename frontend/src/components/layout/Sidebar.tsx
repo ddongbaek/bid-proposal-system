@@ -8,8 +8,10 @@ import {
   ChevronLeft,
   ChevronRight,
   FileOutput,
+  Loader2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
+import { getHwpConversionState, subscribeHwpConversion } from '../../services/hwpConversionStore';
 
 const menuItems = [
   { path: '/', label: '대시보드', icon: LayoutDashboard },
@@ -22,6 +24,8 @@ const menuItems = [
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const hwpState = useSyncExternalStore(subscribeHwpConversion, getHwpConversionState);
+  const hwpConverting = hwpState.status === 'converting';
 
   return (
     <aside
@@ -60,8 +64,19 @@ export default function Sidebar() {
               }`
             }
           >
-            <item.icon size={20} className="flex-shrink-0" />
-            {!collapsed && <span>{item.label}</span>}
+            {item.path === '/hwp' && hwpConverting ? (
+              <Loader2 size={20} className="flex-shrink-0 animate-spin text-blue-500" />
+            ) : (
+              <item.icon size={20} className="flex-shrink-0" />
+            )}
+            {!collapsed && (
+              <span className="flex items-center gap-1.5">
+                {item.label}
+                {item.path === '/hwp' && hwpConverting && (
+                  <span className="text-[10px] text-blue-500 font-normal">변환중</span>
+                )}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>

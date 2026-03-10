@@ -163,6 +163,7 @@ class CompanyInfo(Base):
     representative: Mapped[str | None] = mapped_column(String, nullable=True)  # 대표자
     representative_birth: Mapped[str | None] = mapped_column(String, nullable=True)  # 대표자 생년월일
     address: Mapped[str | None] = mapped_column(String, nullable=True)  # 주소
+    zip_code: Mapped[str | None] = mapped_column(String, nullable=True)  # 우편번호
     phone: Mapped[str | None] = mapped_column(String, nullable=True)  # 전화번호
     fax: Mapped[str | None] = mapped_column(String, nullable=True)  # 팩스
     email: Mapped[str | None] = mapped_column(String, nullable=True)  # 이메일
@@ -172,6 +173,8 @@ class CompanyInfo(Base):
     establishment_date: Mapped[str | None] = mapped_column(String, nullable=True)  # 설립일
     capital: Mapped[str | None] = mapped_column(String, nullable=True)  # 자본금
     employee_count: Mapped[str | None] = mapped_column(String, nullable=True)  # 상시근로자수
+    seal_image: Mapped[str | None] = mapped_column(String, nullable=True)  # 인감도장 이미지 경로
+    certified_copy_image: Mapped[str | None] = mapped_column(String, nullable=True)  # 원본대조필 이미지 경로
     updated_at: Mapped[datetime] = mapped_column(
         default=func.now(), server_default=func.now(), onupdate=func.now()
     )

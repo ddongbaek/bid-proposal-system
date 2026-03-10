@@ -51,6 +51,9 @@ def _migrate_add_columns() -> None:
     # (테이블명, 컬럼명, ALTER 구문) 목록
     migrations = [
         ("personnel", "resident_number", "ALTER TABLE personnel ADD COLUMN resident_number TEXT"),
+        ("company_info", "zip_code", "ALTER TABLE company_info ADD COLUMN zip_code TEXT"),
+        ("company_info", "seal_image", "ALTER TABLE company_info ADD COLUMN seal_image TEXT"),
+        ("company_info", "certified_copy_image", "ALTER TABLE company_info ADD COLUMN certified_copy_image TEXT"),
     ]
 
     with engine.connect() as conn:
