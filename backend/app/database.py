@@ -54,6 +54,8 @@ def _migrate_add_columns() -> None:
         ("company_info", "zip_code", "ALTER TABLE company_info ADD COLUMN zip_code TEXT"),
         ("company_info", "seal_image", "ALTER TABLE company_info ADD COLUMN seal_image TEXT"),
         ("company_info", "certified_copy_image", "ALTER TABLE company_info ADD COLUMN certified_copy_image TEXT"),
+        ("bid_pages", "original_pdf_path", "ALTER TABLE bid_pages ADD COLUMN original_pdf_path TEXT"),
+        ("bid_pages", "overlay_fields", "ALTER TABLE bid_pages ADD COLUMN overlay_fields TEXT"),
     ]
 
     with engine.connect() as conn:

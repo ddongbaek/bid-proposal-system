@@ -295,6 +295,92 @@ def fill_personnel(
     }
 
 
+def fill_all_personnel(
+    html_content: str,
+    personnel_list: list[tuple[Personnel, BidPersonnel | None]],
+) -> dict:
+    """
+    HTML 내 다수 인력 테이블을 한번에 채운다.
+    <tr> 안에 {{name}}, {{department}} 등 인력 플레이스홀더가 있으면
+    배정된 인력 수만큼 행을 복제하고 데이터를 채운다.
+
+    personnel_list: [(Personnel, BidPersonnel|None), ...]
+    """
+    if not html_content:
+        return {"html_content": "", "filled_count": 0, "remaining": []}
+
+    vars_before = set(_extract_variables(html_content))
+    result_html = html_content
+
+    # 인력 단순 필드 목록 (이 필드가 <tr> 안에 있으면 인력 행 복제 대상)
+    personnel_fields = {
+        "name", "title", "department", "phone", "email",
+        "birth_date", "hire_date", "years_of_experience",
+        "education_level", "education_school", "education_major",
+        "graduation_year", "role_in_bid", "notes",
+        "cert_name", "cert_date", "cert_issuer", "cert_number",
+    }
+
+    # <tr> 패턴 찾기
+    tr_pattern = re.compile(r"(<tr\b[^>]*>)(.*?)(</tr>)", re.DOTALL | re.IGNORECASE)
+    # 인력 필드 패턴 (번호 없는)
+    field_pattern = re.compile(r"\{\{(" + "|".join(re.escape(f) for f in personnel_fields) + r")\}\}")
+
+    def replace_tr(match: re.Match) -> str:
+        tr_body = match.group(2)
+        full_tr = match.group(0)
+
+        # 이 <tr> 안에 인력 플레이스홀더가 있는지 확인
+        if not field_pattern.search(tr_body):
+            return full_tr
+
+        if not personnel_list:
+            return ""
+
+        rows: list[str] = []
+        for person, bp in personnel_list:
+            field_map = _build_simple_field_map(person, bp)
+            # 자격증 첫번째만 (요약 테이블에서)
+            certs = person.certifications or []
+            if certs:
+                cert = certs[0]
+                field_map["cert_name"] = _safe_str(cert.cert_name)
+                field_map["cert_date"] = _format_date(cert.cert_date)
+                field_map["cert_issuer"] = _safe_str(cert.cert_issuer)
+                field_map["cert_number"] = _safe_str(cert.cert_number)
+            else:
+                field_map["cert_name"] = ""
+                field_map["cert_date"] = ""
+                field_map["cert_issuer"] = ""
+                field_map["cert_number"] = ""
+
+            row = full_tr
+            for key, value in field_map.items():
+                row = row.replace("{{" + key + "}}", value)
+            rows.append(row)
+
+        return "\n".join(rows)
+
+    result_html = tr_pattern.sub(replace_tr, result_html)
+
+    vars_after = set(_extract_variables(result_html))
+    filled_count = len(vars_before - vars_after)
+    remaining = sorted(vars_after)
+
+    logger.info(
+        "전체 인력 자동 채움 완료: %d명, 치환=%d개, 미치환=%d개",
+        len(personnel_list),
+        filled_count,
+        len(remaining),
+    )
+
+    return {
+        "html_content": result_html,
+        "filled_count": filled_count,
+        "remaining": remaining,
+    }
+
+
 def fill_company(
     html_content: str,
     company_info: CompanyInfo,

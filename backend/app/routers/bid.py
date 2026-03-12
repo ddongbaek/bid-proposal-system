@@ -29,7 +29,7 @@ from app.schemas.bid import (
     FillRequest,
     FillResponse,
 )
-from app.services.fill_service import fill_bid_info, fill_company, fill_personnel, get_selected_project_ids
+from app.services.fill_service import fill_all_personnel, fill_bid_info, fill_company, fill_personnel, get_selected_project_ids
 
 logger = logging.getLogger(__name__)
 
@@ -473,6 +473,84 @@ async def fill_page_personnel(
             page_id,
             data.personnel_id,
         )
+
+    return FillResponse(
+        html_content=result["html_content"],
+        filled_count=result["filled_count"],
+        remaining=result["remaining"],
+    )
+
+
+@router.post("/{bid_id}/pages/{page_id}/fill-all", response_model=FillResponse)
+async def fill_page_all_personnel(
+    bid_id: int,
+    page_id: int,
+    save: bool = False,
+    db: Session = Depends(get_db),
+):
+    """장표에 배정된 전체 인력 데이터를 한번에 채움 (다수 인력 테이블용).
+    <tr> 안의 {{name}}, {{department}} 등을 인력 수만큼 행 복제."""
+    bid = _get_bid_or_404(db, bid_id)
+
+    page = (
+        db.query(BidPage)
+        .filter(BidPage.id == page_id, BidPage.bid_id == bid_id)
+        .first()
+    )
+    if not page:
+        raise HTTPException(status_code=404, detail="장표를 찾을 수 없습니다.")
+    if page.page_type != "html":
+        raise HTTPException(status_code=400, detail="HTML 장표만 자동 채움이 가능합니다.")
+    if not page.html_content:
+        raise HTTPException(status_code=400, detail="장표에 HTML 내용이 없습니다.")
+
+    # 배정된 전체 인력 조회
+    bp_list = (
+        db.query(BidPersonnel)
+        .filter(BidPersonnel.bid_id == bid_id)
+        .all()
+    )
+    if not bp_list:
+        raise HTTPException(status_code=400, detail="배정된 인력이 없습니다.")
+
+    personnel_list: list[tuple] = []
+    for bp in bp_list:
+        person = db.query(Personnel).filter(Personnel.id == bp.personnel_id).first()
+        if person:
+            personnel_list.append((person, bp))
+
+    # 전체 인력 채우기
+    result = fill_all_personnel(
+        html_content=page.html_content,
+        personnel_list=personnel_list,
+    )
+
+    # 회사 정보 채우기
+    company_info = db.query(CompanyInfo).first()
+    if company_info:
+        company_result = fill_company(
+            html_content=result["html_content"],
+            company_info=company_info,
+        )
+        result["html_content"] = company_result["html_content"]
+        result["filled_count"] += company_result["filled_count"]
+        result["remaining"] = company_result["remaining"]
+
+    # 입찰 정보 채우기
+    bid_result = fill_bid_info(
+        html_content=result["html_content"],
+        bid_name=bid.bid_name,
+        bid_number=bid.bid_number,
+        client_name=bid.client_name,
+    )
+    result["html_content"] = bid_result["html_content"]
+    result["filled_count"] += bid_result["filled_count"]
+    result["remaining"] = bid_result["remaining"]
+
+    if save:
+        page.html_content = result["html_content"]
+        db.commit()
+        db.refresh(page)
 
     return FillResponse(
         html_content=result["html_content"],

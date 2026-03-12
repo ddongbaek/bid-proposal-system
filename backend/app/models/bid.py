@@ -79,6 +79,8 @@ class BidPage(Base):
     pdf_page_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String, nullable=True)
     generated_pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    original_pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)  # 오버레이 전 원본 PDF
+    overlay_fields: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON: 오버레이 필드 정보
     created_at: Mapped[datetime] = mapped_column(
         default=func.now(), server_default=func.now()
     )

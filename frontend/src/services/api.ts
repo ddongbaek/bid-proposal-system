@@ -304,6 +304,16 @@ export const bidApi = {
     });
     return response.data;
   },
+
+  /** 전체 인력 한번에 채우기 (다수 인력 테이블용) */
+  fillAllPersonnel: async (bidId: number, pageId: number, save: boolean = false): Promise<{
+    html_content: string;
+    filled_count: number;
+    remaining: string[];
+  }> => {
+    const response = await api.post(`/bids/${bidId}/pages/${pageId}/fill-all?save=${save}`);
+    return response.data;
+  },
 };
 
 // ===== PDF 생성/병합 API =====
@@ -395,6 +405,26 @@ export const hwpApi = {
     return response.data;
   },
 
+  /** HWP → PDF 변환 → 워크스페이스 장표로 추가 (치환 or 바로변환) */
+  fillToPages: async (file: File, bidId: number, personnelId?: number, mode: 'fill' | 'direct' = 'fill'): Promise<{
+    pages: { id: number; page_name: string; page_number: number; sort_order: number }[];
+    total_pages: number;
+    filled_count: number;
+    replacements: Record<string, string>;
+    message: string;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bid_id', String(bidId));
+    formData.append('mode', mode);
+    if (personnelId && mode === 'fill') formData.append('personnel_id', String(personnelId));
+    const response = await api.post('/hwp/fill-to-pages', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 180000,
+    });
+    return response.data;
+  },
+
   /** HWP→페이지 분리 (HWP→HTML→PDF→개별 페이지로 입찰에 추가) */
   toPages: async (file: File, bidId: number): Promise<{
     pages: { id: number; page_name: string; page_number: number; sort_order: number }[];
@@ -410,6 +440,62 @@ export const hwpApi = {
     });
     return response.data;
   },
+
+  /** HWP → COM PDF → Gemini AI → HTML 장표 변환 */
+  toHtmlPages: async (file: File, bidId: number): Promise<{
+    pages: { id: number; page_name: string; page_number: number; sort_order: number; detected_variables?: string[]; fallback_pdf?: boolean }[];
+    total_pages: number;
+    html_count: number;
+    pdf_fallback_count: number;
+    failed_pages: { page_number: number; error: string }[];
+    message: string;
+  }> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bid_id', String(bidId));
+    const response = await api.post('/hwp/hwp-to-html-pages', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 300000, // AI 변환은 페이지당 시간 소요
+    });
+    return response.data;
+  },
+
+  /** PDF 장표 1개를 AI HTML로 변환 (편집+자동채움 가능하게) */
+  convertPageToHtml: async (pageId: number): Promise<{
+    page_id: number;
+    page_type: string;
+    detected_variables: string[];
+    message: string;
+  }> => {
+    const response = await api.post(`/hwp/convert-page-to-html/${pageId}`, null, {
+      timeout: 120000,
+    });
+    return response.data;
+  },
+
+  /** PDF 장표 분석 → 필드 감지 + 자동채움 (오버레이 편집용) */
+  analyzePage: async (pageId: number): Promise<OverlayAnalysis> => {
+    const response = await api.post(`/hwp/analyze-page/${pageId}`, null, {
+      timeout: 60000,
+    });
+    return response.data;
+  },
+
+  /** 오버레이 필드 적용 (최종 PDF 생성) */
+  applyOverlay: async (pageId: number, fields: OverlayField[]): Promise<{ page_id: number; message: string }> => {
+    const response = await api.post(`/hwp/apply-overlay/${pageId}`, fields);
+    return response.data;
+  },
+
+  /** 오버레이 필드 조회 (재편집용) */
+  getOverlayFields: async (pageId: number): Promise<OverlayFieldsResponse> => {
+    const response = await api.get(`/hwp/overlay-fields/${pageId}`);
+    return response.data;
+  },
+
+  /** PDF 페이지 이미지 URL */
+  pageImageUrl: (pageId: number, pageNum: number): string =>
+    `${api.defaults.baseURL}/hwp/page-image/${pageId}/${pageNum}`,
 };
 
 // ===== 회사 기본정보 API =====

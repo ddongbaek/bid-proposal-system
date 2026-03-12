@@ -47,8 +47,11 @@ import type {
   PageLibrarySummary,
   PersonnelSummary,
   CompanyInfo,
+  OverlayField,
+  OverlayPageInfo,
 } from '../types';
 import Modal from '../components/common/Modal';
+import PdfOverlayEditor from '../components/pdf/PdfOverlayEditor';
 
 // --- Sortable Item ---
 function SortablePageCard({
@@ -109,15 +112,13 @@ function SortablePageCard({
           {page.page_type === 'html' ? 'HTML 장표' : 'PDF 원본'}
         </p>
       </div>
-      {page.page_type === 'html' && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-          className="p-1 rounded hover:bg-blue-100 text-blue-500"
-          title="편집"
-        >
-          <Pencil size={14} />
-        </button>
-      )}
+      <button
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        className={`p-1 rounded ${page.page_type === 'pdf' ? 'hover:bg-purple-100 text-purple-500' : 'hover:bg-blue-100 text-blue-500'}`}
+        title={page.page_type === 'pdf' ? 'AI HTML 변환' : '편집'}
+      >
+        <Pencil size={14} />
+      </button>
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         className="p-1 rounded hover:bg-red-100 text-red-400"
@@ -166,12 +167,25 @@ export default function BidWorkspace() {
   // HWP 업로드
   const [hwpUploading, setHwpUploading] = useState(false);
 
+  // HWP 채우기 (기존 COM 방식 — 호환성 유지)
+  const [showHwpFillModal, setShowHwpFillModal] = useState(false);
+  const [hwpFillFile, setHwpFillFile] = useState<File | null>(null);
+  const [hwpFillPersonnelId, setHwpFillPersonnelId] = useState<number | null>(null);
+  const [hwpFillMode, setHwpFillMode] = useState<'fill' | 'direct' | 'ai_html'>('direct');
+  const [hwpFilling, setHwpFilling] = useState(false);
+
+  // PDF 오버레이 편집기
+  const [overlayEditorOpen, setOverlayEditorOpen] = useState(false);
+  const [overlayPageId, setOverlayPageId] = useState<number | null>(null);
+  const [overlayFields, setOverlayFields] = useState<OverlayField[]>([]);
+  const [overlayPagesInfo, setOverlayPagesInfo] = useState<OverlayPageInfo[]>([]);
+
   // 체크박스 선택 (부분 삭제용)
   const [checkedPageIds, setCheckedPageIds] = useState<Set<number>>(new Set());
 
   // 미리보기 스케일
   const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewScale, setPreviewScale] = useState(0.5);
+  const [previewScale, setPreviewScale] = useState(1.0);
   const [previewContainerWidth, setPreviewContainerWidth] = useState(0);
   const A4_WIDTH = 794;
   const A4_HEIGHT = 1123;
@@ -179,6 +193,8 @@ export default function BidWorkspace() {
   // 플레이스홀더 입력폼
   const [showPlaceholderForm, setShowPlaceholderForm] = useState(false);
   const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({});
+  const [focusedPlaceholder, setFocusedPlaceholder] = useState<string | null>(null);
+  const previewIframeRef = useRef<HTMLIFrameElement>(null);
 
   // 자동 채움
   const [filledHtml, setFilledHtml] = useState<string | null>(null);
@@ -220,22 +236,14 @@ export default function BidWorkspace() {
     companyApi.get().then(setCompanyInfo).catch(() => {});
   }, []);
 
-  // 미리보기 컨테이너 크기 감지 → 자동 스케일
-  // selectedPageId를 deps에 넣어야 조건부 렌더링 후 ref가 생길 때 observer 연결됨
+  // 미리보기 컨테이너 크기 감지 (스케일은 수동 조절, 기본 100%)
   useEffect(() => {
     const el = previewContainerRef.current;
     if (!el) return;
-    const updateScale = (w: number) => {
-      setPreviewContainerWidth(w);
-      // 가로 폭에 맞춤 (세로는 스크롤), 여백 40px
-      const scaleW = (w - 40) / A4_WIDTH;
-      setPreviewScale(Math.max(Math.min(scaleW, 1.0), 0.3));
-    };
-    // 초기 크기 즉시 반영
-    updateScale(el.clientWidth);
+    setPreviewContainerWidth(el.clientWidth);
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        updateScale(entry.contentRect.width);
+        setPreviewContainerWidth(entry.contentRect.width);
       }
     });
     observer.observe(el);
@@ -254,6 +262,42 @@ export default function BidWorkspace() {
     const unique = [...new Set(matches.map((m: string) => m.replace(/\{\{|\}\}/g, '')))];
     return unique;
   }, [selectedPage?.html_content, filledHtml]);
+
+  // iframe 내 placeholder 하이라이트
+  const highlightPlaceholder = useCallback((name: string | null) => {
+    setFocusedPlaceholder(name);
+    const iframe = previewIframeRef.current;
+    if (!iframe?.contentDocument) return;
+    const doc = iframe.contentDocument;
+    // 기존 하이라이트 제거
+    doc.querySelectorAll('.placeholder-highlight').forEach((el) => {
+      const parent = el.parentNode;
+      if (parent) {
+        parent.replaceChild(doc.createTextNode(el.textContent || ''), el);
+        parent.normalize();
+      }
+    });
+    if (!name) return;
+    // 해당 placeholder를 찾아서 하이라이트
+    const searchText = `{{${name}}}`;
+    const walk = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const matches: { node: Text; index: number }[] = [];
+    let node: Text | null;
+    while ((node = walk.nextNode() as Text)) {
+      const idx = node.textContent?.indexOf(searchText) ?? -1;
+      if (idx >= 0) matches.push({ node, index: idx });
+    }
+    for (const m of matches) {
+      const span = doc.createElement('span');
+      span.className = 'placeholder-highlight';
+      span.style.cssText = 'background:#fef08a;outline:2px solid #eab308;border-radius:2px;padding:0 2px;';
+      const range = doc.createRange();
+      range.setStart(m.node, m.index);
+      range.setEnd(m.node, m.index + searchText.length);
+      range.surroundContents(span);
+      span.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, []);
 
   // 플레이스홀더 값 적용
   const applyPlaceholders = async () => {
@@ -449,13 +493,74 @@ export default function BidWorkspace() {
     }
   };
 
-  // 장표 편집 (에디터로 이동)
-  const handleEditPage = (page: BidPage) => {
+  // PDF 장표 → AI HTML 변환 (개별 페이지)
+  const [convertingPageId, setConvertingPageId] = useState<number | null>(null);
+  const handleConvertToHtml = async (page: BidPage) => {
+    if (!confirm('이 PDF 장표를 AI HTML로 변환하시겠습니까?\n변환 후 편집기에서 수정 + 자동채움이 가능합니다.\n(10~30초 소요)')) return;
+    setConvertingPageId(page.id);
+    try {
+      const result = await hwpApi.convertPageToHtml(page.id);
+      alert(result.message);
+      await loadBid();
+    } catch (err) {
+      const msg = axios.isAxiosError(err) && err.response?.data?.detail
+        ? err.response.data.detail
+        : 'AI HTML 변환에 실패했습니다.';
+      alert(msg);
+    } finally {
+      setConvertingPageId(null);
+    }
+  };
+
+  // 장표 편집 (에디터로 이동 또는 오버레이 편집기 열기)
+  const handleEditPage = async (page: BidPage) => {
+    // PDF 장표 → AI HTML 변환 제안
+    if (page.page_type === 'pdf') {
+      handleConvertToHtml(page);
+      return;
+    }
+    // HTML 장표 → 코드 에디터
     if (page.html_content) {
       sessionStorage.setItem('hwpHtmlContent', page.html_content);
       sessionStorage.setItem('hwpFileName', page.page_name || '장표 편집');
     }
     navigate(`/bids/${numericBidId}/pages/${page.id}/edit`);
+  };
+
+  // HWP → COM PDF → 페이지별 분리 → 장표 추가
+  const handleHwpFillUpload = async () => {
+    if (!hwpFillFile) return;
+    setHwpFilling(true);
+    try {
+      if (hwpFillMode === 'ai_html') {
+        // AI HTML 변환 모드: HWP → COM PDF → Gemini AI → HTML 장표
+        const result = await hwpApi.toHtmlPages(hwpFillFile, numericBidId);
+        setShowHwpFillModal(false);
+        setHwpFillFile(null);
+        setHwpFillPersonnelId(null);
+        alert(result.message);
+        await loadBid();
+      } else {
+        // 기존 모드: direct/fill
+        const result = await hwpApi.fillToPages(
+          hwpFillFile, numericBidId,
+          hwpFillPersonnelId || undefined,
+          hwpFillMode,
+        );
+        setShowHwpFillModal(false);
+        setHwpFillFile(null);
+        setHwpFillPersonnelId(null);
+        alert(result.message);
+        await loadBid();
+      }
+    } catch (err) {
+      const msg = axios.isAxiosError(err) && err.response?.data?.detail
+        ? err.response.data.detail
+        : err instanceof Error ? err.message : 'HWP 변환에 실패했습니다.';
+      alert(`HWP 변환 실패: ${msg}`);
+    } finally {
+      setHwpFilling(false);
+    }
   };
 
   // 최종 PDF 생성
@@ -491,19 +596,29 @@ export default function BidWorkspace() {
     }
   };
 
+  // 전체 인력 한번에 채우기 (다수 인력 테이블용)
+  const handleFillAllPersonnel = async () => {
+    if (!selectedPage || !numericBidId) return;
+    setFilling(true);
+    try {
+      const result = await bidApi.fillAllPersonnel(numericBidId, selectedPage.id);
+      setFilledHtml(result.html_content);
+      setFillStats({ filled: result.filled_count, remaining: result.remaining });
+    } catch {
+      alert('전체 인력 채우기에 실패했습니다.');
+    } finally {
+      setFilling(false);
+    }
+  };
+
   // 자동 채움 결과 저장
   const handleSaveFilled = async () => {
     if (!selectedPage || !filledHtml || !numericBidId) return;
     try {
-      if (fillPersonnelId) {
-        // 인력 채우기 결과 → fill API (save=true)로 저장
-        await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId, true);
-      } else {
-        // 회사정보/입찰정보만 채운 경우 → 직접 HTML PUT
-        await bidApi.updatePage(numericBidId, selectedPage.id, {
-          html_content: filledHtml,
-        });
-      }
+      // 채움 결과 HTML을 직접 저장
+      await bidApi.updatePage(numericBidId, selectedPage.id, {
+        html_content: filledHtml,
+      });
       setFilledHtml(null);
       setFillStats(null);
       loadBid();
@@ -664,6 +779,13 @@ export default function BidWorkspace() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowHwpFillModal(true)}
+            className="flex items-center gap-1.5 px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 transition-colors"
+          >
+            <FileUp size={16} />
+            HWP 추가
+          </button>
           <button
             onClick={handleGeneratePdf}
             disabled={generating || bid.pages.length === 0}
@@ -902,6 +1024,14 @@ export default function BidWorkspace() {
                         >
                           {filling ? <Loader2 size={12} className="animate-spin" /> : '채우기'}
                         </button>
+                        <button
+                          onClick={handleFillAllPersonnel}
+                          disabled={filling}
+                          className="px-2 py-1 text-xs bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-40 transition-colors"
+                          title="배정된 전체 인력을 테이블에 한번에 채움"
+                        >
+                          {filling ? <Loader2 size={12} className="animate-spin" /> : '전체 채우기'}
+                        </button>
                       </>
                     )}
                     <>
@@ -952,6 +1082,7 @@ export default function BidWorkspace() {
                       }}
                     >
                       <iframe
+                        ref={previewIframeRef}
                         srcDoc={(() => {
                           const html = filledHtml || selectedPage.html_content || '';
                           // 항상 최종 A4 레이아웃 CSS 주입 (기존/신규 장표 모두 대응)
@@ -991,16 +1122,27 @@ export default function BidWorkspace() {
                             적용
                           </button>
                           {filledHtml && (
-                            <button
-                              onClick={savePlaceholderFilled}
-                              className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
-                            >
-                              저장
-                            </button>
+                            <>
+                              <button
+                                onClick={savePlaceholderFilled}
+                                className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                              >
+                                저장
+                              </button>
+                              <button
+                                onClick={() => { setFilledHtml(null); setPlaceholderValues({}); }}
+                                className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                              >
+                                원본
+                              </button>
+                            </>
                           )}
                         </div>
                       </div>
                       <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                        <div className="text-xs text-gray-400 mb-1">
+                          {placeholders.length}개 미치환 / 클릭 시 위치 표시
+                        </div>
                         {placeholders.map((name) => (
                           <div key={name}>
                             <label className="block text-xs text-gray-600 mb-0.5">{`{{${name}}}`}</label>
@@ -1008,8 +1150,12 @@ export default function BidWorkspace() {
                               type="text"
                               value={placeholderValues[name] || ''}
                               onChange={(e) => setPlaceholderValues((prev) => ({ ...prev, [name]: e.target.value }))}
+                              onFocus={() => highlightPlaceholder(name)}
+                              onBlur={() => highlightPlaceholder(null)}
                               placeholder={name}
-                              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              className={`w-full px-2 py-1 text-sm border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 ${
+                                focusedPlaceholder === name ? 'border-yellow-400 bg-yellow-50' : 'border-gray-300'
+                              }`}
                             />
                           </div>
                         ))}
@@ -1173,6 +1319,171 @@ export default function BidWorkspace() {
           </button>
         </div>
       </Modal>
+
+      {/* HWP → 장표 추가 모달 */}
+      <Modal
+        isOpen={showHwpFillModal}
+        onClose={() => { setShowHwpFillModal(false); setHwpFillFile(null); setHwpFillPersonnelId(null); setHwpFillMode('direct'); }}
+        title="HWP → 장표 추가"
+      >
+        <div className="space-y-4">
+          {/* 파일 선택 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">HWP 파일</label>
+            <label className={`flex items-center justify-center gap-2 w-full py-3 border-2 border-dashed rounded-lg cursor-pointer transition-colors ${
+              hwpFillFile
+                ? 'border-blue-400 bg-blue-50 text-blue-700'
+                : 'border-gray-300 bg-gray-50 text-gray-500 hover:border-blue-400 hover:bg-blue-50'
+            }`}>
+              <FileUp size={18} />
+              <span className="text-sm font-medium">
+                {hwpFillFile ? hwpFillFile.name : '파일 선택 (.hwp, .hwpx)'}
+              </span>
+              <input
+                type="file"
+                accept=".hwp,.hwpx"
+                onChange={(e) => setHwpFillFile(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+            </label>
+          </div>
+
+          {/* 모드 선택 */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">변환 방식</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setHwpFillMode('direct')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                  hwpFillMode === 'direct'
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                바로 변환
+                <p className="text-xs font-normal mt-0.5 opacity-70">PDF 그대로</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setHwpFillMode('fill')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                  hwpFillMode === 'fill'
+                    ? 'border-teal-500 bg-teal-50 text-teal-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                자동 치환
+                <p className="text-xs font-normal mt-0.5 opacity-70">{'{{placeholder}}'}</p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setHwpFillMode('ai_html')}
+                className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium border-2 transition-colors ${
+                  hwpFillMode === 'ai_html'
+                    ? 'border-purple-500 bg-purple-50 text-purple-700'
+                    : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                AI 편집용
+                <p className="text-xs font-normal mt-0.5 opacity-70">HTML 변환</p>
+              </button>
+            </div>
+          </div>
+
+          {/* 자동 치환 모드: 인력 선택 */}
+          {hwpFillMode === 'fill' && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">인력 선택 (선택사항)</label>
+                <select
+                  value={hwpFillPersonnelId || ''}
+                  onChange={(e) => setHwpFillPersonnelId(e.target.value ? Number(e.target.value) : null)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">회사정보만 채우기</option>
+                  {bid?.personnel.map((bp) => (
+                    <option key={bp.id} value={bp.personnel_id}>
+                      {bp.personnel_name} {bp.role_in_bid ? `(${bp.role_in_bid})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600 space-y-1">
+                <p className="font-medium text-gray-700">치환 항목:</p>
+                <p>· 회사: {'{{company_name}}'}, {'{{representative}}'}, {'{{business_number}}'}, {'{{address}}'} 등</p>
+                <p>· 입찰: {'{{bid_name}}'}, {'{{bid_number}}'}, {'{{client_name}}'}</p>
+                <p>· 인력: {'{{name}}'}, {'{{department}}'}, {'{{title}}'}, {'{{cert_1_name}}'} 등</p>
+              </div>
+            </>
+          )}
+
+          {/* 안내 */}
+          {hwpFillMode === 'ai_html' ? (
+            <div className="bg-purple-50 rounded-lg p-3 text-xs text-purple-700 space-y-1">
+              <p className="font-medium">AI HTML 변환:</p>
+              <p>1. 한글 → PDF 변환 (COM, 서식 유지)</p>
+              <p>2. 페이지별 Gemini AI → HTML 변환</p>
+              <p>3. 빈칸에 {'{{placeholder}}'} 자동 삽입</p>
+              <p>4. 편집기에서 수정 + 자동채움 가능</p>
+              <p className="text-purple-500 mt-1">※ AI 변환에 페이지당 10~30초 소요</p>
+            </div>
+          ) : (
+            <div className="bg-blue-50 rounded-lg p-3 text-xs text-blue-700 space-y-1">
+              <p className="font-medium">처리 과정:</p>
+              <p>1. 한글에서 PDF로 변환 (서식 100% 유지)</p>
+              <p>2. 페이지별 분리 → 장표 목록에 추가</p>
+              <p>3. 불필요한 페이지 삭제 후, 편집 버튼으로 자동채움/수정</p>
+            </div>
+          )}
+
+          <button
+            onClick={handleHwpFillUpload}
+            disabled={!hwpFillFile || hwpFilling}
+            className={`w-full py-2.5 text-white rounded-lg text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 ${
+              hwpFillMode === 'ai_html'
+                ? 'bg-purple-600 hover:bg-purple-700'
+                : hwpFillMode === 'direct'
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : 'bg-teal-600 hover:bg-teal-700'
+            }`}
+          >
+            {hwpFilling ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                {hwpFillMode === 'ai_html' ? '변환 중... (AI HTML 처리)' : '변환 중... (한글 COM 처리)'}
+              </>
+            ) : (
+              <>
+                <FileUp size={16} />
+                {hwpFillMode === 'ai_html'
+                  ? 'AI HTML 변환 & 장표 추가'
+                  : hwpFillMode === 'direct'
+                    ? 'PDF 변환 & 장표 추가'
+                    : '치환 & 장표 추가'}
+              </>
+            )}
+          </button>
+        </div>
+      </Modal>
+
+      {/* PDF 오버레이 편집기 */}
+      {overlayEditorOpen && overlayPageId && (
+        <PdfOverlayEditor
+          pageId={overlayPageId}
+          fields={overlayFields}
+          pagesInfo={overlayPagesInfo}
+          onSave={() => {
+            setOverlayEditorOpen(false);
+            setOverlayPageId(null);
+            loadBid();
+          }}
+          onClose={() => {
+            setOverlayEditorOpen(false);
+            setOverlayPageId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

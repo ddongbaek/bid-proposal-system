@@ -24,7 +24,7 @@ def _get_gemini_model() -> Any:
         import google.generativeai as genai
 
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-2.5-pro")
         return model
     except ImportError:
         raise HTTPException(
@@ -110,23 +110,58 @@ async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
     """
     model = _get_gemini_model()
 
-    # 프롬프트 구성 - 짧고 직접적으로
-    base_prompt = """이 PDF를 보고 **스크린샷처럼 똑같이 생긴** HTML을 만들어라.
+    # 프롬프트 구성 — 한국 공공입찰 양식에 최적화
+    base_prompt = """이 PDF를 보고 **원본과 동일하게 생긴** HTML을 만들어라.
+이것은 한국 공공기관 입찰 제안서 양식이다. 원본의 정확한 시각적 재현이 최우선.
 
-금지사항:
-- 디자인 변경/개선 절대 금지. 못생겨도 원본 그대로.
-- 표 구조 변경 금지. colspan/rowspan 원본과 정확히 일치.
-- 폰트 변경 금지. 원본이 돋움이면 돋움, 바탕이면 바탕. (font-family: '돋움', Dotum, sans-serif)
-- 여백/간격 변경 금지. 표 사이 간격, 셀 패딩 원본과 동일.
+## 레이아웃 규칙
+- 완전한 HTML 문서: <!DOCTYPE html>, <html>, <head>, <body> 포함
+- A4 크기: body { width:210mm; padding:15mm 15mm 20mm 15mm; box-sizing:border-box; margin:0 auto; }
+- 기본 폰트: body { font-family: 'Batang', '바탕', '바탕체', 'BatangChe', serif; font-size:10pt; line-height:1.6; }
+- 제목은 원본의 크기와 굵기를 그대로 재현 (text-align:center 포함)
+- 볼드/강조 텍스트에만 font-family: 'Dotum', '돋움', sans-serif 사용 가능
 
-필수사항:
-- 빈칸(작성할 곳)은 {{변수명}} 으로 표시 (영문 snake_case)
+## 표(table) 규칙 — 가장 중요
+- table { width:100%; border-collapse:collapse; table-layout:fixed; }
+- **외곽선**: table 자체에 border:2px solid #000; (원본처럼 굵은 외곽 테두리)
+- 내부 셀: border:1px solid #000; padding:4px 6px; vertical-align:middle;
+- colspan, rowspan은 원본과 정확히 일치시켜라
+- 각 열의 너비를 원본 비율대로 <colgroup><col style="width:X%"></colgroup>으로 지정
+- 라벨 셀(회색 배경): background:#f0f0f0; text-align:center; font-weight:bold;
+- 값 셀: text-align:left; (숫자는 text-align:right;)
+- 셀 안 텍스트가 가운데인 경우: text-align:center;
+
+## 텍스트 줄바꿈 — 중요
+- 원본 PDF에서 줄이 바뀌는 지점과 **동일한 위치에서 <br> 태그**로 줄바꿈
+- 절대로 원본의 여러 줄 텍스트를 한 줄로 합치지 마
+- 들여쓰기, 띄어쓰기 간격도 원본 그대로 재현 (필요하면 &nbsp; 사용)
+
+## 빈칸/플레이스홀더 처리
+- 사용자가 작성해야 할 빈칸은 {{영문_변수명}} (snake_case)
 - 이미 적힌 텍스트는 그대로 유지
-- 도장/인감/직인이 있으면 그 위치에 <img class="stamp" src="{{stamp_image}}" style="width:Xmm;height:Ymm;"> 삽입
-- A4 크기: body { width:210mm; min-height:297mm; }
-- CSS는 <style> 안에 포함
+- 단순 필드: {{company_name}}, {{address}}, {{representative}}, {{business_number}},
+  {{phone}}, {{fax}}, {{bid_name}}, {{bid_number}}, {{client_name}}
+- 인력 정보 (테이블 행에 인력이 반복될 때):
+  {{name}}, {{department}}, {{title}}, {{education_level}}, {{education_major}},
+  {{years_of_experience}}, {{role_in_bid}}
+- 자격증: {{cert_name}}, {{cert_date}}, {{cert_issuer}} (번호 붙이지 마)
+- 프로젝트: {{project_name}}, {{project_client}}, {{project_role}}, {{project_start_date}}, {{project_end_date}}
+- **절대 member_1_*, member_2_* 같은 번호 패턴 사용 금지**
+- 도장/인감 위치: (인)
 
-```html 코드 블록 하나만 반환. 설명 불필요."""
+## 페이지 번호
+- 원본에 있는 "- 23 -", "- 24 -" 같은 페이지 번호는 **완전히 제거** (HTML에 포함하지 마)
+
+## 금지사항
+- 디자인 변경/개선/모던화 절대 금지
+- 원본에 없는 요소 추가 금지
+- 표 구조(행/열/병합) 변경 금지
+- 반응형 디자인 금지 (고정 A4)
+- 원본의 여러 줄 텍스트를 한 줄로 합치기 금지
+
+## 출력
+```html 코드 블록 하나만 반환. 설명/주석 불필요.
+CSS는 반드시 <style> 안에 포함."""
 
     if instructions:
         base_prompt += f"\n\n추가 지시: {instructions}"

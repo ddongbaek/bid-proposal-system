@@ -270,6 +270,42 @@ export interface AiChatMessage {
   timestamp: Date;
 }
 
+// ===== PDF 오버레이 관련 타입 =====
+
+export interface OverlayField {
+  id: string;
+  page: number;
+  label: string;
+  field_key: string;
+  rect: [number, number, number, number]; // [x0, y0, x1, y1] PDF pt
+  value: string;
+  font_size?: number;
+}
+
+export interface OverlayPageInfo {
+  page: number;
+  width: number;
+  height: number;
+}
+
+export interface OverlayAnalysis {
+  page_id: number;
+  page_name: string;
+  total_pages: number;
+  fields: OverlayField[];
+  filled_count: number;
+  total_fields: number;
+  pages_info: OverlayPageInfo[];
+  message: string;
+}
+
+export interface OverlayFieldsResponse {
+  page_id: number;
+  fields: OverlayField[];
+  pages_info: OverlayPageInfo[];
+  total_pages: number;
+}
+
 // ===== 공통 타입 =====
 
 export interface ApiError {
