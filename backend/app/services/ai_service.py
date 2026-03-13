@@ -111,57 +111,62 @@ async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
     model = _get_gemini_model()
 
     # 프롬프트 구성 — 한국 공공입찰 양식에 최적화
-    base_prompt = """이 PDF를 보고 **원본과 동일하게 생긴** HTML을 만들어라.
-이것은 한국 공공기관 입찰 제안서 양식이다. 원본의 정확한 시각적 재현이 최우선.
+    base_prompt = """PDF 원본을 **픽셀 단위로 동일하게** 재현하는 HTML을 만들어라.
+한국 공공기관 입찰 제안서 양식이다. 원본과 시각적으로 구분할 수 없어야 한다.
 
-## 레이아웃 규칙
-- 완전한 HTML 문서: <!DOCTYPE html>, <html>, <head>, <body> 포함
-- A4 크기: body { width:210mm; padding:15mm 15mm 20mm 15mm; box-sizing:border-box; margin:0 auto; }
-- 기본 폰트: body { font-family: 'Batang', '바탕', '바탕체', 'BatangChe', serif; font-size:10pt; line-height:1.6; }
-- 제목은 원본의 크기와 굵기를 그대로 재현 (text-align:center 포함)
-- 볼드/강조 텍스트에만 font-family: 'Dotum', '돋움', sans-serif 사용 가능
+## 1. 문서 구조
+- 완전한 HTML 문서: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>CSS여기</style></head><body>내용</body></html>
+- A4: body { width:210mm; min-height:297mm; padding:15mm; box-sizing:border-box; margin:0 auto; }
 
-## 표(table) 규칙 — 가장 중요
-- table { width:100%; border-collapse:collapse; table-layout:fixed; }
-- **외곽선**: table 자체에 border:2px solid #000; (원본처럼 굵은 외곽 테두리)
-- 내부 셀: border:1px solid #000; padding:4px 6px; vertical-align:middle;
-- colspan, rowspan은 원본과 정확히 일치시켜라
-- 각 열의 너비를 원본 비율대로 <colgroup><col style="width:X%"></colgroup>으로 지정
-- 라벨 셀(회색 배경): background:#f0f0f0; text-align:center; font-weight:bold;
-- 값 셀: text-align:left; (숫자는 text-align:right;)
-- 셀 안 텍스트가 가운데인 경우: text-align:center;
+## 2. 폰트 — 필수
+- body { font-family: 'Batang', '바탕', '바탕체', serif; font-size:10pt; line-height:1.6; color:#000; }
+- 원본이 고딕인 경우에만 font-family: 'Dotum', '돋움', sans-serif 사용
+- 제목: 원본과 동일한 크기, 굵기, 밑줄(text-decoration:underline), 자간(letter-spacing) 재현
 
-## 텍스트 줄바꿈 — 중요
-- 원본 PDF에서 줄이 바뀌는 지점과 **동일한 위치에서 <br> 태그**로 줄바꿈
-- 절대로 원본의 여러 줄 텍스트를 한 줄로 합치지 마
-- 들여쓰기, 띄어쓰기 간격도 원본 그대로 재현 (필요하면 &nbsp; 사용)
+## 3. 표(table) — 가장 중요, 정확히 따라라
+- table { width:100%; border-collapse:collapse; table-layout:fixed; border:2px solid #000; }
+- 모든 td, th { border:1px solid #000; padding:3px 5px; vertical-align:middle; font-size:10pt; }
+- **<colgroup>으로 각 열 너비를 원본 비율과 동일하게 %로 지정** (눈대중이 아니라 PDF의 실제 비율 측정)
+- colspan, rowspan은 원본과 **정확히** 일치 (행/열 수를 세어라)
+- 라벨 셀: background:#e8e8e8; text-align:center; font-weight:bold;
+- 데이터 셀: text-align:left; (숫자는 right, 가운데 정렬이면 center)
+- 셀 내 텍스트 자간(letter-spacing)이 넓은 경우 원본대로 재현 (예: "주 소" → letter-spacing:1em)
+- **병합 셀 안에 하위 테이블이 있으면** 중첩 table로 재현
 
-## 빈칸/플레이스홀더 처리
-- 사용자가 작성해야 할 빈칸은 {{영문_변수명}} (snake_case)
-- 이미 적힌 텍스트는 그대로 유지
-- 단순 필드: {{company_name}}, {{address}}, {{representative}}, {{business_number}},
-  {{phone}}, {{fax}}, {{bid_name}}, {{bid_number}}, {{client_name}}
-- 인력 정보 (테이블 행에 인력이 반복될 때):
-  {{name}}, {{department}}, {{title}}, {{education_level}}, {{education_major}},
-  {{years_of_experience}}, {{role_in_bid}}
-- 자격증: {{cert_name}}, {{cert_date}}, {{cert_issuer}} (번호 붙이지 마)
+## 4. 텍스트 줄바꿈 — 반드시 원본과 동일
+- 원본 PDF에서 줄이 바뀌는 **정확한 위치**에 <br> 삽입
+- 여러 줄 텍스트를 절대로 한 줄로 합치지 마
+- 문단 사이 간격은 margin-bottom 또는 빈 <br>로 재현
+- 들여쓰기: text-indent 또는 &nbsp;&nbsp; 사용
+- 글자 간격이 넓은 곳: letter-spacing 사용 (예: "년 월 일" 사이 간격)
+
+## 5. 빈칸/플레이스홀더
+- 빈 입력란은 {{영문_snake_case}} 형식
+- 이미 텍스트가 있는 셀은 원본 텍스트 그대로 유지
+- 회사정보: {{company_name}}, {{address}}, {{representative}}, {{business_number}}, {{phone}}, {{fax}}
+- 인력: {{name}}, {{department}}, {{title}}, {{education_level}}, {{education_major}}, {{years_of_experience}}, {{role_in_bid}}
+- 자격증: {{cert_name}}, {{cert_date}}, {{cert_issuer}}
 - 프로젝트: {{project_name}}, {{project_client}}, {{project_role}}, {{project_start_date}}, {{project_end_date}}
-- **절대 member_1_*, member_2_* 같은 번호 패턴 사용 금지**
-- 도장/인감 위치: (인)
+- 날짜: {{submission_year}}, {{submission_month}}, {{submission_day}}
+- 기타: {{project_duration}}, {{participant_count}}, {{project_manager_name}}, {{representative_name}}
+- 도장/인감: (인)
+- **절대 member_1_name, member_2_name 같은 번호 패턴 금지**
 
-## 페이지 번호
-- 원본에 있는 "- 23 -", "- 24 -" 같은 페이지 번호는 **완전히 제거** (HTML에 포함하지 마)
+## 6. 페이지 번호
+- "- 23 -", "- 1 -" 등 원본의 페이지 번호는 **완전 제거** (출력하지 마)
 
-## 금지사항
-- 디자인 변경/개선/모던화 절대 금지
-- 원본에 없는 요소 추가 금지
-- 표 구조(행/열/병합) 변경 금지
-- 반응형 디자인 금지 (고정 A4)
-- 원본의 여러 줄 텍스트를 한 줄로 합치기 금지
+## 7. 절대 금지
+- 원본에 없는 요소/장식/그림자/둥근모서리 추가 금지
+- 디자인 변경/모던화/개선 금지
+- 표 행/열 수 변경 금지
+- 반응형/미디어쿼리 금지
+- JavaScript 금지
+- 원본 여러 줄 → 한 줄로 합치기 금지
+- 원본에 없는 색상 추가 금지
 
-## 출력
-```html 코드 블록 하나만 반환. 설명/주석 불필요.
-CSS는 반드시 <style> 안에 포함."""
+## 8. 출력
+```html 코드 블록 **하나만** 반환. 설명/주석/마크다운 텍스트 일절 불필요.
+CSS는 반드시 <style> 태그 안에."""
 
     if instructions:
         base_prompt += f"\n\n추가 지시: {instructions}"

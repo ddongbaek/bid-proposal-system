@@ -195,6 +195,8 @@ export default function BidWorkspace() {
   const [placeholderValues, setPlaceholderValues] = useState<Record<string, string>>({});
   const [focusedPlaceholder, setFocusedPlaceholder] = useState<string | null>(null);
   const previewIframeRef = useRef<HTMLIFrameElement>(null);
+  // 원본 HTML 보존 (채우기/적용 전 상태, 저장 후에도 복원 가능)
+  const [originalHtml, setOriginalHtml] = useState<string | null>(null);
 
   // 자동 채움
   const [filledHtml, setFilledHtml] = useState<string | null>(null);
@@ -302,6 +304,8 @@ export default function BidWorkspace() {
   // 플레이스홀더 값 적용
   const applyPlaceholders = async () => {
     if (!selectedPage) return;
+    // 최초 적용 시 원본 보존
+    if (!originalHtml) setOriginalHtml(selectedPage.html_content || '');
     let html = filledHtml || selectedPage.html_content || '';
     let count = 0;
     for (const [key, value] of Object.entries(placeholderValues)) {
@@ -586,6 +590,8 @@ export default function BidWorkspace() {
     if (!selectedPage || !fillPersonnelId || !numericBidId) return;
     setFilling(true);
     try {
+      // 최초 채우기 시 원본 보존
+      if (!originalHtml) setOriginalHtml(selectedPage.html_content || '');
       const result = await bidApi.fillPersonnel(numericBidId, selectedPage.id, fillPersonnelId);
       setFilledHtml(result.html_content);
       setFillStats({ filled: result.filled_count, remaining: result.remaining });
@@ -601,6 +607,7 @@ export default function BidWorkspace() {
     if (!selectedPage || !numericBidId) return;
     setFilling(true);
     try {
+      if (!originalHtml) setOriginalHtml(selectedPage.html_content || '');
       const result = await bidApi.fillAllPersonnel(numericBidId, selectedPage.id);
       setFilledHtml(result.html_content);
       setFillStats({ filled: result.filled_count, remaining: result.remaining });
@@ -628,14 +635,28 @@ export default function BidWorkspace() {
   };
 
   // 자동 채움 원본 복원
-  const handleResetFilled = () => {
+  const handleResetFilled = async () => {
+    if (originalHtml && numericBidId && selectedPage) {
+      // DB에 이미 저장했더라도 원본으로 되돌림
+      try {
+        await bidApi.updatePage(numericBidId, selectedPage.id, {
+          html_content: originalHtml,
+        });
+        loadBid();
+      } catch {
+        // DB 복원 실패해도 UI는 원본으로
+      }
+    }
     setFilledHtml(null);
     setFillStats(null);
+    setOriginalHtml(null);
+    setPlaceholderValues({});
   };
 
   // 회사정보 + 입찰정보 자동 채움 (클라이언트 사이드)
   const handleFillCompany = async () => {
     if (!selectedPage || !bid) return;
+    if (!originalHtml) setOriginalHtml(selectedPage.html_content || '');
     let html = filledHtml || selectedPage.html_content || '';
     let count = 0;
 
@@ -1044,14 +1065,16 @@ export default function BidWorkspace() {
                         회사정보
                       </button>
                     </>
-                    {filledHtml && (
+                    {(filledHtml || originalHtml) && (
                       <>
                         <div className="w-px h-4 bg-gray-300" />
-                        <button onClick={handleSaveFilled} className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
-                          저장
-                        </button>
-                        <button onClick={handleResetFilled} className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition-colors">
-                          원본
+                        {filledHtml && (
+                          <button onClick={handleSaveFilled} className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 transition-colors">
+                            저장
+                          </button>
+                        )}
+                        <button onClick={handleResetFilled} className="px-2 py-1 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200 transition-colors font-medium">
+                          원본 복원
                         </button>
                       </>
                     )}
@@ -1086,7 +1109,7 @@ export default function BidWorkspace() {
                         srcDoc={(() => {
                           const html = filledHtml || selectedPage.html_content || '';
                           // 항상 최종 A4 레이아웃 CSS 주입 (기존/신규 장표 모두 대응)
-                          const layoutCss = '<style>body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style><script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\u00a0\s]/g,""))el.remove()})});</script>';
+                          const layoutCss = '<style>@import url("https://cdn.jsdelivr.net/gh/nickcernis/batang-nanum-webfont/stylesheet.css");body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important;font-family:"Batang","바탕","바탕체","Nanum Myeongjo",serif!important;font-size:10pt!important;line-height:1.6!important}td,th,p,span,div,li{font-family:inherit!important}table{border:2px solid #000!important;border-collapse:collapse!important;width:100%!important}td,th{border:1px solid #000!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style><script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\u00a0\s]/g,""))el.remove()});var pns=document.body.querySelectorAll("p,div,span");pns.forEach(function(el){if(/^\\s*-\\s*\\d+\\s*-\\s*$/.test(el.textContent))el.remove()})});</script>';
                           if (html.includes('</head>')) {
                             return html.replace('</head>', layoutCss + '</head>');
                           }
@@ -1121,20 +1144,21 @@ export default function BidWorkspace() {
                           >
                             적용
                           </button>
-                          {filledHtml && (
+                          {(filledHtml || originalHtml) && (
                             <>
+                              {filledHtml && (
+                                <button
+                                  onClick={savePlaceholderFilled}
+                                  className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                  저장
+                                </button>
+                              )}
                               <button
-                                onClick={savePlaceholderFilled}
-                                className="px-2 py-0.5 text-xs bg-green-600 text-white rounded hover:bg-green-700"
+                                onClick={handleResetFilled}
+                                className="px-2 py-0.5 text-xs bg-orange-100 text-orange-700 rounded hover:bg-orange-200"
                               >
-                                저장
-                              </button>
-                              <button
-                                onClick={() => { setFilledHtml(null); setPlaceholderValues({}); }}
-                                className="px-2 py-0.5 text-xs bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-                              >
-                                원본
-                              </button>
+                                원본</button>
                             </>
                           )}
                         </div>

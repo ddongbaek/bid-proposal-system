@@ -59,21 +59,58 @@ def _build_simple_field_map(
     personnel: Personnel,
     bid_personnel: BidPersonnel | None = None,
 ) -> dict[str, str]:
-    """Personnel + BidPersonnel에서 단순 필드(1:1) 매핑 딕셔너리를 구성한다."""
+    """Personnel + BidPersonnel에서 단순 필드(1:1) 매핑 딕셔너리를 구성한다.
+
+    AI가 생성하는 다양한 변수명에 대응하기 위해 별칭(alias)도 함께 등록한다.
+    예: {{position}} → title, {{major}} → education_major
+    """
+    name = _safe_str(personnel.name)
+    title = _safe_str(personnel.title)
+    department = _safe_str(personnel.department)
+    phone = _safe_str(personnel.phone)
+    email = _safe_str(personnel.email)
+    birth_date = _format_date(personnel.birth_date)
+    hire_date = _format_date(personnel.hire_date)
+    years_exp = _safe_str(personnel.years_of_experience)
+    edu_level = _safe_str(personnel.education_level)
+    edu_school = _safe_str(personnel.education_school)
+    edu_major = _safe_str(personnel.education_major)
+    grad_year = _safe_str(personnel.graduation_year)
+    notes = _safe_str(personnel.notes)
+
     field_map: dict[str, str] = {
-        "name": _safe_str(personnel.name),
-        "title": _safe_str(personnel.title),
-        "department": _safe_str(personnel.department),
-        "phone": _safe_str(personnel.phone),
-        "email": _safe_str(personnel.email),
-        "birth_date": _format_date(personnel.birth_date),
-        "hire_date": _format_date(personnel.hire_date),
-        "years_of_experience": _safe_str(personnel.years_of_experience),
-        "education_level": _safe_str(personnel.education_level),
-        "education_school": _safe_str(personnel.education_school),
-        "education_major": _safe_str(personnel.education_major),
-        "graduation_year": _safe_str(personnel.graduation_year),
-        "notes": _safe_str(personnel.notes),
+        # 기본 필드
+        "name": name,
+        "title": title,
+        "department": department,
+        "phone": phone,
+        "email": email,
+        "birth_date": birth_date,
+        "hire_date": hire_date,
+        "years_of_experience": years_exp,
+        "education_level": edu_level,
+        "education_school": edu_school,
+        "education_major": edu_major,
+        "graduation_year": grad_year,
+        "notes": notes,
+        # ── AI가 자주 생성하는 별칭들 ──
+        "position": title,                    # 직위
+        "affiliation": department,             # 소속
+        "major": edu_major,                    # 전공
+        "degree": edu_level,                   # 학위
+        "school": edu_school,                  # 학교
+        "career": years_exp,                   # 경력
+        "experience": years_exp,               # 경력
+        "office_phone": phone,                 # 사무실 전화
+        "mobile_phone": _safe_str(getattr(personnel, 'mobile_phone', None)) or phone,  # 휴대전화
+        "mobile": _safe_str(getattr(personnel, 'mobile_phone', None)) or phone,
+        "tel": phone,
+        "contact": phone,
+        "birthdate": birth_date,
+        "birth": birth_date,
+        "personnel_name": name,                # 인력명
+        "member_name": name,
+        "employee_name": name,
     }
 
     if bid_personnel:
@@ -313,12 +350,18 @@ def fill_all_personnel(
     result_html = html_content
 
     # 인력 단순 필드 목록 (이 필드가 <tr> 안에 있으면 인력 행 복제 대상)
+    # AI가 생성하는 별칭도 포함
     personnel_fields = {
         "name", "title", "department", "phone", "email",
         "birth_date", "hire_date", "years_of_experience",
         "education_level", "education_school", "education_major",
         "graduation_year", "role_in_bid", "notes",
         "cert_name", "cert_date", "cert_issuer", "cert_number",
+        # AI 별칭
+        "position", "affiliation", "major", "degree", "school",
+        "career", "experience", "office_phone", "mobile_phone",
+        "mobile", "tel", "contact", "birthdate", "birth",
+        "personnel_name", "member_name", "employee_name",
     }
 
     # <tr> 패턴 찾기
