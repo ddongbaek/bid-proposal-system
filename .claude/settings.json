@@ -5,7 +5,22 @@
       "Bash(uvicorn app.main:app --reload --port 8000)",
       "Bash(findstr \":8000 :5173\")",
       "Bash(findstr \":5173\")",
-      "Bash(findstr \":8000.*LISTEN\")"
+      "Bash(findstr \":8000.*LISTEN\")",
+      "Bash(findstr \"LISTENING\")",
+      "WebSearch",
+      "Read(//c/Program Files \\(x86\\)/**)",
+      "Read(//c/Program Files \\(x86\\)/HNC/**)",
+      "Read(//c/Program Files \\(x86\\)/Hnc/**)",
+      "Bash(ls -la \"/c/Program Files \\(x86\\)/Hancom/Office 2024/\")",
+      "Bash(cmd //c \"dir \"\"C:\\\\Program Files\\\\Hancom\\\\Office 2024\"\"\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Program Files\\\\Hancom'' -Recurse -Depth 2 | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-ChildItem ''C:\\\\Program Files\\\\Hancom\\\\Office 2024'' -ErrorAction SilentlyContinue | Select-Object Name; Get-ChildItem ''C:\\\\Program Files \\(x86\\)\\\\Hancom\\\\Office 2024'' -ErrorAction SilentlyContinue | Select-Object Name\")",
+      "Bash(findstr \":8000\")",
+      "Read(//tmp/**)",
+      "Bash(ls e:구글드라이브_동기화Claude04_bid-proposal-systemdocs/*.hwpx*)",
+      "mcp__filesystem__directory_tree",
+      "mcp__filesystem__read_text_file",
+      "Bash(findstr \":5173 :8000\")"
     ]
   }
 }

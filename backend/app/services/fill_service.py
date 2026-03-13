@@ -464,6 +464,15 @@ def fill_company(
         "employee_count": _safe_str(company_info.employee_count),
     }
 
+    # AI가 생성하는 별칭 매핑
+    alias_map: dict[str, str] = {
+        "foundation_date": company_field_map.get("establishment_date", ""),
+        "representative_name": company_field_map.get("representative", ""),
+        "business_item": company_field_map.get("business_category", ""),
+        "business_registration_number": company_field_map.get("business_number", ""),
+    }
+    company_field_map.update({k: v for k, v in alias_map.items() if k not in company_field_map})
+
     for key, value in company_field_map.items():
         result_html = result_html.replace("{{" + key + "}}", value)
 

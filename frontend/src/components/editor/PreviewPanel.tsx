@@ -68,8 +68,8 @@ export default function PreviewPanel({
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-      font-size: 10pt;
+      font-family: 'Batang', '바탕', '바탕체', serif;
+      font-size: 11pt;
       padding: 20mm;
       width: 210mm;
       min-height: 297mm;

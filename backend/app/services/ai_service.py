@@ -1,5 +1,6 @@
 """Gemini AI 서비스 모듈 - PDF→HTML 변환 및 HTML 자연어 수정"""
 
+import asyncio
 import json
 import logging
 import re
@@ -110,79 +111,89 @@ async def pdf_to_html(pdf_content: bytes, instructions: str = "") -> dict:
     """
     model = _get_gemini_model()
 
-    # 프롬프트 구성 — 한국 공공입찰 양식에 최적화
-    base_prompt = """PDF 원본을 **픽셀 단위로 동일하게** 재현하는 HTML을 만들어라.
-한국 공공기관 입찰 제안서 양식이다. 원본과 시각적으로 구분할 수 없어야 한다.
+    # 프롬프트 구성 — 한국 공공입찰 양식에 최적화 (복사기 모드)
+    base_prompt = """너는 PDF를 HTML로 변환하는 **복사기**다. 창의력은 0이다. 원본을 있는 그대로 복제해라.
+한국 공공기관 입찰 제안서 양식이다.
+
+## 핵심 원칙: 원본에 있는 것만 넣어라. 원본에 없는 것은 절대 넣지 마라.
 
 ## 1. 문서 구조
-- 완전한 HTML 문서: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>CSS여기</style></head><body>내용</body></html>
-- A4: body { width:210mm; min-height:297mm; padding:15mm; box-sizing:border-box; margin:0 auto; }
+- 완전한 HTML: <!DOCTYPE html><html><head><meta charset="UTF-8"><style>CSS</style></head><body>내용</body></html>
+- A4: body { width:210mm; min-height:297mm; padding:15mm 15mm 10mm 15mm; box-sizing:border-box; margin:0 auto; }
 
-## 2. 폰트 — 필수
-- body { font-family: 'Batang', '바탕', '바탕체', serif; font-size:10pt; line-height:1.6; color:#000; }
-- 원본이 고딕인 경우에만 font-family: 'Dotum', '돋움', sans-serif 사용
-- 제목: 원본과 동일한 크기, 굵기, 밑줄(text-decoration:underline), 자간(letter-spacing) 재현
+## 2. 폰트
+- body { font-family: 'Batang', '바탕', '바탕체', serif; font-size:11pt; line-height:1.8; color:#000; }
+- 원본 PDF의 글자 크기를 보고 font-size를 맞춰라. 본문은 보통 11pt~12pt다.
+- 제목은 원본과 동일한 크기/굵기/밑줄/자간으로 재현
 
-## 3. 표(table) — 가장 중요, 정확히 따라라
-- table { width:100%; border-collapse:collapse; table-layout:fixed; border:2px solid #000; }
-- 모든 td, th { border:1px solid #000; padding:3px 5px; vertical-align:middle; font-size:10pt; }
-- **<colgroup>으로 각 열 너비를 원본 비율과 동일하게 %로 지정** (눈대중이 아니라 PDF의 실제 비율 측정)
-- colspan, rowspan은 원본과 **정확히** 일치 (행/열 수를 세어라)
-- 라벨 셀: background:#e8e8e8; text-align:center; font-weight:bold;
-- 데이터 셀: text-align:left; (숫자는 right, 가운데 정렬이면 center)
-- 셀 내 텍스트 자간(letter-spacing)이 넓은 경우 원본대로 재현 (예: "주 소" → letter-spacing:1em)
-- **병합 셀 안에 하위 테이블이 있으면** 중첩 table로 재현
+## 3. 표(table) — 원본 구조를 정확히 세어라
+- table { width:100%; border-collapse:collapse; table-layout:fixed; }
+- **외곽선**: 원본 PDF를 보고 판단. 보통 table { border:2px solid #000; }
+- **내부선**: td, th { border:1px solid #000; padding:4px 6px; vertical-align:middle; }
+- **<colgroup>**: 원본 PDF의 실제 열 너비 비율을 측정해서 %로 지정
+- colspan, rowspan: 원본의 행/열을 **하나하나 세어서** 정확히 일치시켜라
+- **배경색**: 원본에 회색/색상 배경이 있는 셀만 background 지정. 원본이 흰색이면 background 지정하지 마라
+- **텍스트 정렬**: 원본 그대로. 가운데면 center, 왼쪽이면 left
+- **자간**: "주 소", "직 위" 등 글자 사이 간격이 넓으면 letter-spacing으로 재현
 
-## 4. 텍스트 줄바꿈 — 반드시 원본과 동일
-- 원본 PDF에서 줄이 바뀌는 **정확한 위치**에 <br> 삽입
-- 여러 줄 텍스트를 절대로 한 줄로 합치지 마
-- 문단 사이 간격은 margin-bottom 또는 빈 <br>로 재현
-- 들여쓰기: text-indent 또는 &nbsp;&nbsp; 사용
-- 글자 간격이 넓은 곳: letter-spacing 사용 (예: "년 월 일" 사이 간격)
+## 4. 텍스트
+- 원본의 줄바꿈 위치에 정확히 <br> 삽입. 여러 줄을 한 줄로 합치지 마라
+- 원본에서 문단이 표 전체 너비를 꽉 채우면, 글자 크기/줄바꿈이 원본과 일치해야 한다
+- 들여쓰기: text-indent 또는 &nbsp; 사용
+- "년 월 일" 같은 넓은 간격: letter-spacing 사용
 
-## 5. 빈칸/플레이스홀더
-- 빈 입력란은 {{영문_snake_case}} 형식
-- 이미 텍스트가 있는 셀은 원본 텍스트 그대로 유지
-- 회사정보: {{company_name}}, {{address}}, {{representative}}, {{business_number}}, {{phone}}, {{fax}}
-- 인력: {{name}}, {{department}}, {{title}}, {{education_level}}, {{education_major}}, {{years_of_experience}}, {{role_in_bid}}
-- 자격증: {{cert_name}}, {{cert_date}}, {{cert_issuer}}
-- 프로젝트: {{project_name}}, {{project_client}}, {{project_role}}, {{project_start_date}}, {{project_end_date}}
-- 날짜: {{submission_year}}, {{submission_month}}, {{submission_day}}
-- 기타: {{project_duration}}, {{participant_count}}, {{project_manager_name}}, {{representative_name}}
-- 도장/인감: (인)
-- **절대 member_1_name, member_2_name 같은 번호 패턴 금지**
+## 5. 빈칸 → 플레이스홀더
+- 사람이 채워야 할 빈 입력란만 플레이스홀더로 변환
+- 색상 없이 검정색 텍스트로. 플레이스홀더에 색상/스타일 금지
+- **아래 목록에 있는 변수명만 사용. 목록에 없는 변수명은 만들지 마라:**
+  - 회사: {{company_name}}, {{address}}, {{representative}}, {{business_number}}, {{phone}}, {{fax}}, {{capital}}, {{foundation_date}}, {{business_type}}, {{business_category}}, {{business_item}}
+  - 인력: {{name}}, {{department}}, {{title}}, {{education_level}}, {{education_major}}, {{years_of_experience}}, {{role_in_bid}}, {{email}}
+  - 연락처: {{office_phone}}, {{mobile_phone}}
+  - 자격증: {{cert_name}}, {{cert_date}}, {{cert_issuer}}
+  - 프로젝트: {{project_name}}, {{project_client}}, {{project_role}}, {{project_start_date}}, {{project_end_date}}
+  - 날짜: {{year}}, {{month}}, {{day}}
+  - 기타: {{project_period}}, {{participant_count}}, {{organization_and_personnel}}, {{key_history_and_intro}}, {{strengths_and_specialties}}
+- 도장: (인)
+- **빈 괄호 "( )"는 원본 그대로 유지. 플레이스홀더로 바꾸지 마라**
+- **"법 인( ), 개 인( )" 같은 선택형 괄호는 원본 텍스트 그대로 유지**
+- 이미 텍스트가 있는 셀은 원본 그대로 유지
+- 번호 패턴 금지 (member_1_name 등)
 
 ## 6. 페이지 번호
-- "- 23 -", "- 1 -" 등 원본의 페이지 번호는 **완전 제거** (출력하지 마)
+- "- 23 -" 등 페이지 번호는 제거
 
-## 7. 절대 금지
-- 원본에 없는 요소/장식/그림자/둥근모서리 추가 금지
-- 디자인 변경/모던화/개선 금지
-- 표 행/열 수 변경 금지
-- 반응형/미디어쿼리 금지
-- JavaScript 금지
-- 원본 여러 줄 → 한 줄로 합치기 금지
-- 원본에 없는 색상 추가 금지
+## 7. 절대 금지 목록
+- 원본에 없는 배경색/색상 추가 금지 (플레이스홀더도 검정색)
+- 원본에 없는 수평선(hr), 구분선, 장식 금지
+- 원본에 없는 그림자/둥근모서리/그라데이션 금지
+- 표의 행/열 수 변경 금지
+- 셀 병합 구조 변경 금지
+- 반응형/미디어쿼리/JavaScript 금지
+- 여러 줄 → 한 줄 합치기 금지
+- font-weight:bold를 원본에 없는 곳에 추가 금지
 
 ## 8. 출력
-```html 코드 블록 **하나만** 반환. 설명/주석/마크다운 텍스트 일절 불필요.
-CSS는 반드시 <style> 태그 안에."""
+```html 코드 블록 하나만. 설명/주석 없이. CSS는 <style> 안에."""
 
     if instructions:
         base_prompt += f"\n\n추가 지시: {instructions}"
 
     try:
         # PDF를 먼저 보여주고 프롬프트를 뒤에 (시각 중심 처리)
-        response = model.generate_content(
-            [
-                {"mime_type": "application/pdf", "data": pdf_content},
-                base_prompt,
-            ],
-            generation_config={
-                "temperature": 0.0,
-                "max_output_tokens": 65536,
-            },
-        )
+        # to_thread로 감싸서 이벤트 루프 블로킹 방지
+        def _call_gemini():
+            return model.generate_content(
+                [
+                    {"mime_type": "application/pdf", "data": pdf_content},
+                    base_prompt,
+                ],
+                generation_config={
+                    "temperature": 0.0,
+                    "max_output_tokens": 65536,
+                },
+            )
+
+        response = await asyncio.to_thread(_call_gemini)
 
         if not response.text:
             raise HTTPException(
@@ -375,13 +386,16 @@ async def modify_html(
 """
 
     try:
-        response = model.generate_content(
-            prompt,
-            generation_config={
-                "temperature": 0.1,
-                "max_output_tokens": 8192,
-            },
-        )
+        def _call_gemini_modify():
+            return model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 8192,
+                },
+            )
+
+        response = await asyncio.to_thread(_call_gemini_modify)
 
         if not response.text:
             raise HTTPException(

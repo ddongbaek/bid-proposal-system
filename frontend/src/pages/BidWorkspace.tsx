@@ -222,8 +222,10 @@ export default function BidWorkspace() {
         if (prev && data.pages.some((p: BidPage) => p.id === prev)) return prev;
         return data.pages.length > 0 ? data.pages[0].id : null;
       });
-    } catch {
-      setError('입찰 정보를 불러올 수 없습니다.');
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || err?.message || '알 수 없는 오류';
+      console.error('입찰 로드 실패:', err);
+      setError(`입찰 정보를 불러올 수 없습니다. (${detail})`);
     } finally {
       setLoading(false);
     }
@@ -1109,7 +1111,8 @@ export default function BidWorkspace() {
                         srcDoc={(() => {
                           const html = filledHtml || selectedPage.html_content || '';
                           // 항상 최종 A4 레이아웃 CSS 주입 (기존/신규 장표 모두 대응)
-                          const layoutCss = '<style>@import url("https://cdn.jsdelivr.net/gh/nickcernis/batang-nanum-webfont/stylesheet.css");body{width:210mm!important;min-height:297mm!important;box-sizing:border-box!important;background:#fff!important;padding:15mm 20mm!important;margin:0 auto!important;font-family:"Batang","바탕","바탕체","Nanum Myeongjo",serif!important;font-size:10pt!important;line-height:1.6!important}td,th,p,span,div,li{font-family:inherit!important}table{border:2px solid #000!important;border-collapse:collapse!important;width:100%!important}td,th{border:1px solid #000!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style><script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\u00a0\s]/g,""))el.remove()});var pns=document.body.querySelectorAll("p,div,span");pns.forEach(function(el){if(/^\\s*-\\s*\\d+\\s*-\\s*$/.test(el.textContent))el.remove()})});</script>';
+                          // 최소한의 레이아웃 CSS만 주입 — AI HTML 자체 스타일을 존중
+                          const layoutCss = '<style>body{background:#fff!important;margin:0 auto!important}.Paper{width:100%!important;max-width:100%!important;margin:0!important;padding:0!important}.TableControl{margin:0 auto!important}</style><script>document.addEventListener("DOMContentLoaded",function(){document.querySelectorAll(".TableControl").forEach(function(el){if(!el.textContent.replace(/[\u00a0\s]/g,""))el.remove()});var pns=document.body.querySelectorAll("p,div,span");pns.forEach(function(el){if(/^\\s*-\\s*\\d+\\s*-\\s*$/.test(el.textContent))el.remove()})});</script>';
                           if (html.includes('</head>')) {
                             return html.replace('</head>', layoutCss + '</head>');
                           }

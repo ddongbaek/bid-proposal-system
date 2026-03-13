@@ -14,8 +14,8 @@ const DEFAULT_HTML = `<!DOCTYPE html>
   <meta charset="utf-8">
   <style>
     body {
-      font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
-      font-size: 10pt;
+      font-family: 'Batang', '바탕', '바탕체', serif;
+      font-size: 11pt;
       padding: 20mm;
       width: 210mm;
       min-height: 297mm;
